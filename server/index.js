@@ -136,8 +136,9 @@ wss.on('connection', (ws) => {
         cancelOfflineCleanup(room, deviceId)
         store.setOnline(room, deviceId, true)
         broadcastRoom(room)
-        // 게임 중이었다면 마지막 상태도 다시 보내 화면을 이어 그리게 한다
-        if (room.lastState != null && room.hostId !== deviceId) send(ws, { t: 'state', data: room.lastState })
+        // 게임 중이었다면 마지막 상태도 다시 보내 화면을 이어 그리게 한다.
+        // 호스트에게도 보낸다 — 새로고침한 호스트가 이걸로 게임을 복원한다.
+        if (room.lastState != null) send(ws, { t: 'state', data: room.lastState })
       } else if (msg.room) {
         // 클라이언트는 방에 있었다고 알고 있지만 서버엔 없음(유예 만료/서버 재시작)
         send(ws, { t: 'closed', reason: '방이 닫혔어요. 처음 화면에서 다시 시작해 주세요.' })
@@ -159,8 +160,8 @@ wss.on('connection', (ws) => {
         conn.room = room
         cancelOfflineCleanup(room, deviceId) // 유예 중 재참여면 그대로 복귀
         broadcastRoom(room)
-        // 게임 중간에 들어온 기기도 화면을 그릴 수 있게 마지막 상태를 보내준다
-        if (room.lastState != null && room.hostId !== deviceId) send(ws, { t: 'state', data: room.lastState })
+        // 게임 중간에 들어온(또는 복귀한) 기기도 화면을 그릴 수 있게 마지막 상태를 보내준다
+        if (room.lastState != null) send(ws, { t: 'state', data: room.lastState })
         break
       }
       case 'leave': {

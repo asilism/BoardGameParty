@@ -11,10 +11,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 //
 //  canControl(playerId): 이 기기가 조작할 수 있는 참가자인지.
 //   (오프라인이면 전부, 온라인이면 이 기기에서 등록한 참가자만)
+//
+//  resume: 호스트 전용. 서버는 호스트에게 보통 state를 보내지 않으므로,
+//   호스트가 state를 받았다는 건 "새로고침/재접속 복구" 시점뿐이다.
+//   게임은 useHostResume으로 이 스냅샷에서 진행 상황을 복원한다.
 export function useGameNet(net, onAction) {
   const online = !!net?.online
   const isHost = !online || net.isHost
-  const [remote, setRemote] = useState(null)
+  // 구독을 걸기 전에 이미 도착한 상태도 초기값으로 줍는다(마운트 타이밍 경쟁 방지)
+  const [remote, setRemote] = useState(() => (online && !isHost && net.getLastState?.()) || null)
+  const [resume, setResume] = useState(() => (online && isHost && net.getLastState?.()) || null)
 
   const handlerRef = useRef(onAction)
   handlerRef.current = onAction
@@ -24,12 +30,14 @@ export function useGameNet(net, onAction) {
     if (!online) return
     if (isHost) {
       const offAction = net.subscribeAction((a, from) => handlerRef.current?.(a, from))
+      const offState = net.subscribeState(setResume) // 복구 스냅샷(위 주석 참고)
       // 호스트가 잠깐 끊겼다 돌아오면 끊긴 동안의 변화를 모두에게 다시 보낸다
       const offOpen = net.subscribeOpen?.(() => {
         if (lastViewRef.current != null) net.sendState(lastViewRef.current)
       })
       return () => {
         offAction?.()
+        offState?.()
         offOpen?.()
       }
     }
@@ -67,5 +75,21 @@ export function useGameNet(net, onAction) {
     [online, net]
   )
 
-  return { online, isHost, remote, publish, sendAction, canControl, ownerDevice }
+  return { online, isHost, remote, resume, publish, sendAction, canControl, ownerDevice }
+}
+
+// 호스트 새로고침 복구: 서버가 보관하던 마지막 view로 게임을 한 번만 복원한다.
+//  - canApply(): 아직 게임을 시작하지 않은 상태(설정 화면)일 때만 true를 반환할 것.
+//    (게임이 이미 돌고 있는 중의 단순 재접속에는 적용하지 않기 위함)
+//  - apply(view): 게임별 복원 로직. view는 그 게임이 publish하던 형태 그대로.
+export function useHostResume(resume, canApply, apply) {
+  const doneRef = useRef(false)
+  const fnRef = useRef(null)
+  fnRef.current = { canApply, apply }
+  useEffect(() => {
+    if (doneRef.current || !resume || resume.phase !== 'play') return
+    if (!fnRef.current.canApply()) return
+    doneRef.current = true
+    fnRef.current.apply(resume)
+  }, [resume])
 }

@@ -10,7 +10,7 @@ import { createGame, applyMove, computeMove, rollDice } from './engine.js'
 import { randomCardId, resolveKeyCard, getCard } from './keycards.js'
 import { getZodiac } from '../../shared/zodiac.js'
 import { sound } from '../../shared/sound.js'
-import { useGameNet } from '../../net/useGameNet.js'
+import { useGameNet, useHostResume } from '../../net/useGameNet.js'
 import { NetWaiting, GuestRestartNote, shufflePlayers } from '../../net/NetParts.jsx'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -21,7 +21,7 @@ const REVEAL_STEP = 130
 //  - 호스트가 게임 로직/연출 타이밍을 전부 결정하고 view를 publish.
 //  - 게스트는 view를 그대로 그리고, 자기 차례의 주사위/카드 입력만 action으로 보낸다.
 export default function LadderGame({ roster, onExit, net }) {
-  const { online, isHost, remote, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
+  const { online, isHost, remote, resume, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
 
   const [phase, setPhase] = useState('setup') // 'setup' | 'order' | 'play'
   const [size, setSize] = useState(BOARD_SIZES[0]) // 선택된 보드 크기(30칸/50칸)
@@ -91,6 +91,32 @@ export default function LadderGame({ roster, onExit, net }) {
     const t = setTimeout(() => setBanner(null), 1300)
     return () => clearTimeout(t)
   }, [game, online, isHost])
+
+  // 호스트가 게임 도중 새로고침 → 서버가 보관한 마지막 view로 이어가기.
+  // 진행 중이던 이동 연출은 버리고 확정된 칸에서, 카드 고르던 중이면 새 카드 5장으로 다시.
+  useHostResume(resume, () => phase === 'setup', (v) => {
+    sound.setEnabled(soundOn)
+    const cfg = v.config
+    setConfig(cfg)
+    setSize(BOARD_SIZES.find((s) => s.tileCount === cfg.tileCount) || BOARD_SIZES[0])
+    setOrder(v.players)
+    const g = {
+      config: cfg,
+      players: v.players,
+      currentIndex: v.currentIndex,
+      status: v.status,
+      winnerId: v.winnerId ?? null,
+      lastRoll: null,
+    }
+    setGame(g)
+    setDisplayPos(Object.fromEntries(g.players.map((p) => [p.id, p.position])))
+    prevTurnRef.current = v.currentIndex
+    setMapKey((k) => k + 1)
+    setRevealing(false)
+    setAnimating(false)
+    setPhase('play')
+    if (v.cardEvent && v.status === 'playing') openKeyCard(g)
+  })
 
   // 보드 크기 선택 → 차례 정하기 단계로 (온라인은 무작위 순서로 바로 시작)
   function chooseSize(boardSize) {

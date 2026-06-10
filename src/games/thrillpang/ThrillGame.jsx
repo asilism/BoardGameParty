@@ -12,7 +12,7 @@ import {
 } from './engine.js'
 import { getZodiac } from '../../shared/zodiac.js'
 import { sound } from '../../shared/sound.js'
-import { useGameNet } from '../../net/useGameNet.js'
+import { useGameNet, useHostResume } from '../../net/useGameNet.js'
 import { NetWaiting, GuestRestartNote } from '../../net/NetParts.jsx'
 
 const READY_MS = 1000
@@ -56,7 +56,7 @@ function bombOrbit(p) {
 //  - 폭탄 애니메이션은 각 기기가 "자기 화면에서 라운드가 시작된 순간"부터 자기 시계로 돌리고,
 //    누른 시각(t)도 그 시계로 재서 보낸다 → 네트워크 지연이 있어도 보이는 대로 공평.
 export default function ThrillGame({ roster, onExit, net }) {
-  const { online, isHost, remote, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
+  const { online, isHost, remote, resume, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
 
   const [game, setGame] = useState(null)
   const [phase, setPhase] = useState('setup')
@@ -108,6 +108,16 @@ export default function ThrillGame({ roster, onExit, net }) {
       pressed,
     })
   }, [online, isHost, publish, phase, game, roundPhase, pressed])
+
+  // 호스트가 게임 도중 새로고침 → 점수/라운드를 이어받는다.
+  // 진행 중이던 라운드는 폭탄 시각을 알 수 없으므로 그 라운드를 처음부터 다시 시작.
+  useHostResume(resume, () => phase === 'setup', (v) => {
+    sound.setEnabled(soundOn)
+    setGame({ players: v.players, round: v.round, rounds: v.rounds, status: v.status })
+    setPhase('play')
+    if (v.status === 'finished') setRoundPhase('result')
+    else beginRound()
+  })
 
   function startGame() {
     sound.setEnabled(soundOn)

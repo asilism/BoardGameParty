@@ -5,13 +5,13 @@ import FullscreenButton from '../../shared/FullscreenButton.jsx'
 import { createGame, tapRun, progress, ranking, winner } from './engine.js'
 import { getZodiac } from '../../shared/zodiac.js'
 import { sound } from '../../shared/sound.js'
-import { useGameNet } from '../../net/useGameNet.js'
+import { useGameNet, useHostResume } from '../../net/useGameNet.js'
 import { NetWaiting, GuestRestartNote } from '../../net/NetParts.jsx'
 
 // 온라인 동기화(호스트 권위): 게스트의 연타가 action으로 들어오고
 // 호스트가 진행률/순위를 계산해 view를 publish 한다.
 export default function RaceGame({ roster, onExit, net }) {
-  const { online, isHost, remote, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
+  const { online, isHost, remote, resume, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
 
   const [phase, setPhase] = useState('setup') // 'setup' | 'play'
   const [roundPhase, setRoundPhase] = useState('ready') // 'ready'(카운트다운) | 'run' | 'done'
@@ -47,6 +47,18 @@ export default function RaceGame({ roster, onExit, net }) {
       count,
     })
   }, [online, isHost, publish, phase, game, roundPhase, count])
+
+  // 호스트가 게임 도중 새로고침 → 서버가 보관한 마지막 view로 이어가기
+  useHostResume(resume, () => phase === 'setup', (v) => {
+    sound.setEnabled(soundOn)
+    setGame({ players: v.players, finishOrder: v.finishOrder, status: v.status })
+    setPhase('play')
+    if (v.roundPhase === 'ready') beginCountdown()
+    else {
+      setCount(0)
+      setRoundPhase(v.roundPhase)
+    }
+  })
 
   function startGame() {
     sound.setEnabled(soundOn)

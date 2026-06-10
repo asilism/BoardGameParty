@@ -6,7 +6,7 @@ import FullscreenButton from '../../shared/FullscreenButton.jsx'
 import { createGame, tapSymbol, winners } from './engine.js'
 import { getZodiac } from '../../shared/zodiac.js'
 import { sound } from '../../shared/sound.js'
-import { useGameNet } from '../../net/useGameNet.js'
+import { useGameNet, useHostResume } from '../../net/useGameNet.js'
 import { NetWaiting, GuestRestartNote } from '../../net/NetParts.jsx'
 
 const N = 5 // 보통 난이도: 카드당 6문양
@@ -104,7 +104,7 @@ function DobbleCard({ symbols, emojiOf, onTap, disabled, highlight }) {
 // 온라인 동기화(호스트 권위): 판정/연출 타이밍은 호스트가 결정해 view를 publish,
 // 게스트는 자기 카드의 문양 탭만 action으로 보낸다.
 export default function DobbleGame({ roster, onExit, net }) {
-  const { online, isHost, remote, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
+  const { online, isHost, remote, resume, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
 
   const [phase, setPhase] = useState('setup') // 'setup' | 'play'
   const [game, setGame] = useState(null)
@@ -141,8 +141,34 @@ export default function DobbleGame({ roster, onExit, net }) {
       fly,
       celebrate,
       inputLocked,
+      // 화면엔 안 쓰이지만 호스트 새로고침 복구에 필요한 덱 정보
+      n: game.n,
+      centerQueue: game.centerQueue,
+      centerPos: game.centerPos,
     })
   }, [online, isHost, publish, phase, game, flash, fly, celebrate, inputLocked])
+
+  // 호스트가 게임 도중 새로고침 → 서버가 보관한 마지막 view로 이어가기
+  useHostResume(resume, () => phase === 'setup', (v) => {
+    if (!Array.isArray(v.centerQueue)) return // 덱 정보 없는 옛 스냅샷은 복구 불가
+    sound.setEnabled(soundOn)
+    setGame({
+      n: v.n ?? N,
+      symbols: v.symbols,
+      players: v.players,
+      centerQueue: v.centerQueue,
+      centerPos: v.centerPos,
+      center: v.center,
+      locked: v.locked,
+      status: v.status,
+    })
+    setFlash(null)
+    setFly(null)
+    setCelebrate(null)
+    setInputLocked(false)
+    comboRef.current = { id: null, n: 0 }
+    setPhase('play')
+  })
 
   function startGame() {
     sound.setEnabled(soundOn)

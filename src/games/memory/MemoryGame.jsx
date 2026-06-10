@@ -6,7 +6,7 @@ import TurnOrderRoll from '../../shared/TurnOrderRoll.jsx'
 import { createGame, applyPair, winners } from './engine.js'
 import { getZodiac } from '../../shared/zodiac.js'
 import { sound } from '../../shared/sound.js'
-import { useGameNet } from '../../net/useGameNet.js'
+import { useGameNet, useHostResume } from '../../net/useGameNet.js'
 import { NetWaiting, GuestRestartNote, shufflePlayers } from '../../net/NetParts.jsx'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -14,7 +14,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 // 온라인 동기화(호스트 권위): 호스트가 판정/타이밍을 결정해 view를 publish,
 // 게스트는 자기 차례에만 카드 탭을 action으로 보낸다.
 export default function MemoryGame({ roster, onExit, net }) {
-  const { online, isHost, remote, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
+  const { online, isHost, remote, resume, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
 
   const [phase, setPhase] = useState('setup') // 'setup' | 'order' | 'play'
   const [order, setOrder] = useState(roster) // 차례 정하기로 확정된 순서
@@ -66,6 +66,27 @@ export default function MemoryGame({ roster, onExit, net }) {
     const t = setTimeout(() => setBanner(null), 1200)
     return () => clearTimeout(t)
   }, [game, online, isHost])
+
+  // 호스트가 게임 도중 새로고침 → 서버가 보관한 마지막 view로 이어가기.
+  // 판정 중이던(뒤집힌) 카드는 다시 덮고 같은 차례부터 진행한다.
+  useHostResume(resume, () => phase === 'setup', (v) => {
+    sound.setEnabled(soundOn)
+    setDifficulty(v.difficulty)
+    setOrder(v.players)
+    prevTurnRef.current = v.currentIndex
+    setFlipped([])
+    setBusy(false)
+    setBanner(null)
+    setGame({
+      difficulty: v.difficulty,
+      players: v.players,
+      currentIndex: v.currentIndex,
+      cards: v.cards,
+      matched: v.matched,
+      status: v.status,
+    })
+    setPhase('play')
+  })
 
   // 난이도 선택 → 차례 정하기 (혼자면 건너뛰고 바로 시작, 온라인은 무작위 순서)
   function chooseDifficulty(diff) {

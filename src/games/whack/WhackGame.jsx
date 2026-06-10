@@ -5,7 +5,7 @@ import FullscreenButton from '../../shared/FullscreenButton.jsx'
 import { createGame, whack, winners, DURATION_MS, HOLES } from './engine.js'
 import { getZodiac } from '../../shared/zodiac.js'
 import { sound } from '../../shared/sound.js'
-import { useGameNet } from '../../net/useGameNet.js'
+import { useGameNet, useHostResume } from '../../net/useGameNet.js'
 import { NetWaiting, GuestRestartNote } from '../../net/NetParts.jsx'
 
 const POP_MIN = 700
@@ -14,7 +14,7 @@ const POP_MAX = 1150
 // 온라인 동기화(호스트 권위): 두더지 등장 타이밍/판정은 호스트가 굴리고
 // 90ms 틱마다 view(구멍 상태 + 호스트 시계)를 publish. 게스트는 자기 칸만 두드린다.
 export default function WhackGame({ roster, onExit, net }) {
-  const { online, isHost, remote, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
+  const { online, isHost, remote, resume, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
 
   const [phase, setPhase] = useState('setup') // 'setup' | 'play'
   const [game, setGame] = useState(null)
@@ -54,6 +54,21 @@ export default function WhackGame({ roster, onExit, net }) {
     publish({ phase: 'play', players: game.players, holes, now, timeLeft, done })
   }, [online, isHost, publish, phase, game, holes, now, timeLeft, done])
 
+  // 호스트가 게임 도중 새로고침 → 점수/남은 시간을 이어받아 라운드 재개
+  useHostResume(resume, () => phase === 'setup', (v) => {
+    sound.setEnabled(soundOn)
+    setGame({ players: v.players, status: 'playing' })
+    if (v.done) {
+      setPhase('play')
+      setDone(true)
+      setHoles({})
+      setNow(Date.now())
+      setTimeLeft(0)
+    } else {
+      beginRun(v.players, Math.max(1, v.timeLeft) * 1000)
+    }
+  })
+
   function startGame() {
     sound.setEnabled(soundOn)
     const players = roster.map((p) => ({
@@ -63,13 +78,18 @@ export default function WhackGame({ roster, onExit, net }) {
       color: getZodiac(p.zodiacId)?.color,
     }))
     setGame(createGame(players))
+    beginRun(players, DURATION_MS)
+  }
+
+  // 라운드 진행(시작/복구 공용): 타이머 + 두더지 등장 루프를 돌린다
+  function beginRun(players, durationMs) {
     holesRef.current = {}
     setHoles({})
     setDone(false)
-    setTimeLeft(Math.round(DURATION_MS / 1000))
+    setTimeLeft(Math.ceil(durationMs / 1000))
     setPhase('play')
     const start = Date.now()
-    endRef.current = start + DURATION_MS
+    endRef.current = start + durationMs
     setNow(start)
     clearLoops()
     tickRef.current = setInterval(() => {

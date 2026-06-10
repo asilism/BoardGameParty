@@ -5,7 +5,7 @@ import FullscreenButton from '../../shared/FullscreenButton.jsx'
 import { createGame, roundWinner, applyRound, winners } from './engine.js'
 import { getZodiac } from '../../shared/zodiac.js'
 import { sound } from '../../shared/sound.js'
-import { useGameNet } from '../../net/useGameNet.js'
+import { useGameNet, useHostResume } from '../../net/useGameNet.js'
 import { NetWaiting, GuestRestartNote } from '../../net/NetParts.jsx'
 
 const GO_WINDOW = 2500 // 초록불 후 응답 대기
@@ -14,7 +14,7 @@ const GO_WINDOW = 2500 // 초록불 후 응답 대기
 // 반응시간(ms)은 각 게스트가 "자기 화면이 초록불로 바뀐 순간"부터 직접 재서 보내므로
 // 네트워크 지연이 있어도 공평하다.
 export default function TrafficGame({ roster, onExit, net }) {
-  const { online, isHost, remote, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
+  const { online, isHost, remote, resume, publish, sendAction, canControl, ownerDevice } = useGameNet(net, handleAction)
 
   const [phase, setPhase] = useState('setup') // 'setup' | 'play'
   const [roundPhase, setRoundPhase] = useState('wait') // 'wait'(빨강) | 'go'(초록) | 'result'
@@ -65,6 +65,21 @@ export default function TrafficGame({ roster, onExit, net }) {
       roundWin,
     })
   }, [online, isHost, publish, phase, game, roundPhase, presses, roundWin])
+
+  // 호스트가 게임 도중 새로고침 → 점수/판을 이어받고, 진행 중이던 판은 다시 시작
+  useHostResume(resume, () => phase === 'setup', (v) => {
+    sound.setEnabled(soundOn)
+    const g = { players: v.players, round: v.round, rounds: v.rounds, status: v.status }
+    gameRef.current = g
+    setGame(g)
+    setPhase('play')
+    if (v.status === 'finished') {
+      setRoundPhase('result')
+      setRoundWin(null)
+    } else {
+      startRound()
+    }
+  })
 
   function startGame() {
     sound.setEnabled(soundOn)

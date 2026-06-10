@@ -30,6 +30,10 @@ export function RoomProvider({ intent, onLeft, children }) {
   const [room, setRoom] = useState(null)
   const [notice, setNotice] = useState(null) // { text, tone: 'warn' | 'info' }
   const everInRoom = useRef(false)
+  // 서버가 보내준 마지막 게임 상태. 게임 컴포넌트가 마운트되기 전에 도착해도
+  // 잃어버리지 않게 여기 보관한다 (게스트 미러링 초기값 + 호스트 새로고침 복구용).
+  const gameStateRef = useRef(null)
+  const screenSeenRef = useRef(null)
 
   useEffect(() => {
     const offs = [
@@ -42,6 +46,10 @@ export function RoomProvider({ intent, onLeft, children }) {
       client.on('room', ({ room }) => {
         everInRoom.current = true
         saveSession(room.code) // 튕겨도 다시 켜면 이 방으로 복귀
+        if (room.screen !== screenSeenRef.current) {
+          screenSeenRef.current = room.screen
+          gameStateRef.current = null // 화면이 바뀜 → 이전 게임 상태는 폐기
+        }
         setRoom(room)
         if (statusRef.current === 'reconnecting') setNotice({ text: '🔌 다시 연결됐어요!', tone: 'info' })
         setStat('in')
@@ -58,6 +66,9 @@ export function RoomProvider({ intent, onLeft, children }) {
         clearSession()
         setNotice({ text: reason, tone: 'warn' })
         setStat('closed')
+      }),
+      client.on('state', ({ data }) => {
+        gameStateRef.current = data
       }),
       client.on('reconnecting', () => {
         // 방에 있다가 끊긴 경우만. (첫 접속 재시도는 'connecting' 그대로 둔다)
@@ -113,6 +124,8 @@ export function RoomProvider({ intent, onLeft, children }) {
             subscribeAction: (fn) => client.on('action', ({ data, deviceId }) => fn(data, deviceId)),
             // 재접속 완료 시점 구독(호스트가 최신 상태를 다시 쏘는 용도)
             subscribeOpen: (fn) => client.on('open', fn),
+            // 구독 전에 이미 도착해 있던 마지막 게임 상태
+            getLastState: () => gameStateRef.current,
           }
         : null,
     }
