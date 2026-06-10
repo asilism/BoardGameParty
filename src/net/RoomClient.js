@@ -24,9 +24,17 @@ export function wsUrl() {
   return `${proto}://${location.host}/ws`
 }
 
+// 첫 접속이 이만큼 연달아 실패하면 그제야 실패로 알린다
+// (서버가 막 깨어나는 중 등 일시 실패는 "접속 중..."인 채로 조용히 재시도)
+const FIRST_CONNECT_TRIES = 5
+
 export function createRoomClient({ url = wsUrl(), deviceId = getDeviceId() } = {}) {
   let ws = null
   let closedByUser = false
+  let everOpened = false // 한 번이라도 접속에 성공했는지
+  let failStreak = 0 // 연속 실패 횟수(재시도 간격 계산용)
+  let retryTimer = null
+  let roomCode = null // 현재 들어가 있는 방 코드(재접속 시 hello에 실어 보냄)
   const listeners = new Map() // type -> Set<fn>
 
   const emit = (type, payload) => {
@@ -38,7 +46,10 @@ export function createRoomClient({ url = wsUrl(), deviceId = getDeviceId() } = {
     closedByUser = false
     ws = new WebSocket(url)
     ws.onopen = () => {
-      send({ t: 'hello', deviceId })
+      everOpened = true
+      failStreak = 0
+      // 방에 있던 중 끊겼다면 서버가 hello만으로 방/게임 상태를 복구해 준다
+      send({ t: 'hello', deviceId, room: roomCode })
       emit('open')
     }
     ws.onmessage = (ev) => {
@@ -48,10 +59,19 @@ export function createRoomClient({ url = wsUrl(), deviceId = getDeviceId() } = {
       } catch {
         return
       }
+      if (msg.t === 'room') roomCode = msg.room?.code || null
+      if (msg.t === 'closed') roomCode = null
       emit(msg.t, msg)
     }
     ws.onclose = () => {
-      if (!closedByUser) emit('disconnect')
+      if (closedByUser) return
+      failStreak++
+      if (!everOpened && failStreak >= FIRST_CONNECT_TRIES) {
+        emit('fail') // 첫 접속 자체가 안 됨 → 그만 시도하고 실패 화면
+        return
+      }
+      if (everOpened) emit('reconnecting') // 쓰던 중 끊김 → 무한 재시도
+      retryTimer = setTimeout(connect, Math.min(700 * 2 ** (failStreak - 1), 8000))
     }
     ws.onerror = () => {}
   }
@@ -62,6 +82,7 @@ export function createRoomClient({ url = wsUrl(), deviceId = getDeviceId() } = {
 
   function close() {
     closedByUser = true
+    clearTimeout(retryTimer)
     try {
       ws?.close()
     } catch {
@@ -82,7 +103,10 @@ export function createRoomClient({ url = wsUrl(), deviceId = getDeviceId() } = {
     on,
     createRoom: () => send({ t: 'create' }),
     joinRoom: (code) => send({ t: 'join', code }),
-    leaveRoom: () => send({ t: 'leave' }),
+    leaveRoom: () => {
+      roomCode = null
+      send({ t: 'leave' })
+    },
     addPlayer: (player) => send({ t: 'addPlayer', player }),
     removePlayer: (playerId) => send({ t: 'removePlayer', playerId }),
     setScreen: (screen) => send({ t: 'setScreen', screen }),

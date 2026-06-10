@@ -63,7 +63,9 @@ export default function OnlineLobby({ room, isHost, deviceId, addPlayer, removeP
         </div>
       </section>
 
-      {notice && <div className="net-toast">{notice}</div>}
+      {notice && (
+        <div className={`net-toast ${notice.tone === 'info' ? 'net-toast--info' : ''}`}>{notice.text}</div>
+      )}
 
       {/* 참가자 관리 — 모든 기기의 참가자가 합쳐져 보인다 */}
       <section className="roster">
@@ -91,15 +93,17 @@ export default function OnlineLobby({ room, isHost, deviceId, addPlayer, removeP
               const z = getZodiac(p.zodiacId)
               const mine = p.deviceId === deviceId
               const canRemove = mine || isHost
+              const offline = p.online === false // 기기 연결이 잠시 끊김(복귀 대기 중)
               return (
                 <div
                   key={p.id}
-                  className={`player-chip ${mine ? 'player-chip--mine' : ''}`}
+                  className={`player-chip ${mine ? 'player-chip--mine' : ''} ${offline ? 'player-chip--offline' : ''}`}
                   style={{ '--z-color': z.color }}
                 >
                   <span className="player-chip__emoji">{z.emoji}</span>
                   <span className="player-chip__name">{p.name}</span>
                   {mine && <span className="player-chip__tag">내 기기</span>}
+                  {offline && <span className="player-chip__tag player-chip__tag--off">연결 끊김</span>}
                   {canRemove && (
                     <button
                       className="player-chip__x"

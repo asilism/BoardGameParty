@@ -18,16 +18,29 @@ export function useGameNet(net, onAction) {
 
   const handlerRef = useRef(onAction)
   handlerRef.current = onAction
+  const lastViewRef = useRef(null) // 호스트가 마지막으로 publish한 상태(재접속 시 재전송용)
 
   useEffect(() => {
     if (!online) return
-    if (isHost) return net.subscribeAction((a, from) => handlerRef.current?.(a, from))
+    if (isHost) {
+      const offAction = net.subscribeAction((a, from) => handlerRef.current?.(a, from))
+      // 호스트가 잠깐 끊겼다 돌아오면 끊긴 동안의 변화를 모두에게 다시 보낸다
+      const offOpen = net.subscribeOpen?.(() => {
+        if (lastViewRef.current != null) net.sendState(lastViewRef.current)
+      })
+      return () => {
+        offAction?.()
+        offOpen?.()
+      }
+    }
     return net.subscribeState(setRemote)
   }, [online, isHost, net])
 
   const publish = useCallback(
     (view) => {
-      if (online && isHost) net.sendState(view)
+      if (!online || !isHost) return
+      lastViewRef.current = view
+      net.sendState(view)
     },
     [online, isHost, net]
   )

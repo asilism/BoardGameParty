@@ -1654,6 +1654,28 @@ body {
 .net-toast--ingame {
   position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 60; margin: 0;
 }
+/* 경고가 아닌 안내(예: "다시 연결됐어요") — 초록 톤 */
+.net-toast--info {
+  background: rgba(110, 231, 183, 0.16); border-color: rgba(110, 231, 183, 0.5); color: #b9f3d9;
+}
+
+/* 화면 전체를 덮는 안내(재접속 중 / 호스트 복귀 대기) */
+.net-overlay {
+  position: fixed; inset: 0; z-index: 80;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; padding: 24px; text-align: center;
+  background: rgba(8, 12, 24, 0.8); backdrop-filter: blur(3px);
+}
+.net-overlay__icon { font-size: clamp(40px, 10vh, 72px); line-height: 1; animation: netPulse 1.6s ease-in-out infinite; }
+.net-overlay p { font-size: clamp(15px, 2.8vh, 20px); font-weight: 700; color: var(--text); white-space: pre-line; }
+@keyframes netPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.92); opacity: 0.7; }
+}
+
+/* 연결이 잠시 끊긴 참가자 칩 */
+.player-chip--offline { opacity: 0.55; }
+.player-chip__tag--off { background: #94a3b8; color: #1a2233; }
 .net-guest-note { color: var(--muted); font-weight: 700; font-size: clamp(12px, 2vh, 15px); margin: 4px 0; }
 
 /* 온라인에서 남의 입력 영역(누를 수 없음) 표시 */

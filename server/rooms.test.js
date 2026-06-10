@@ -85,6 +85,45 @@ test('스냅샷: 모든 기기의 참가자를 합쳐 deviceId와 함께 반환'
   assert.equal(snap.players[1].name, 'burrit')
 })
 
+test('연결 상태: 오프라인 표시는 참가자를 유지하고 스냅샷에 드러난다', () => {
+  const s = createRoomStore()
+  const room = s.create('dev-A')
+  s.join(room.code, 'dev-B')
+  s.addPlayer(room, 'dev-B', { zodiacId: 'ox', name: 'B' })
+
+  assert.equal(s.setOnline(room, 'dev-B', false), true)
+  assert.equal(s.setOnline(room, 'dev-X', false), false) // 없는 기기
+
+  let snap = s.snapshot(room)
+  assert.equal(snap.hostOnline, true)
+  assert.equal(snap.deviceCount, 1) // 온라인 기기만 센다
+  assert.deepEqual(snap.players.map((p) => [p.id, p.online]), [['ox', false]])
+
+  // 호스트가 끊기면 hostOnline=false (방은 유예 동안 유지)
+  s.setOnline(room, 'dev-A', false)
+  snap = s.snapshot(room)
+  assert.equal(snap.hostOnline, false)
+  assert.ok(s.rooms.has(room.code))
+})
+
+test('재접속: findRoomByDevice로 방을 찾고, join은 기존 참가자를 유지한 채 복귀', () => {
+  const s = createRoomStore()
+  const room = s.create('dev-A')
+  s.join(room.code, 'dev-B')
+  s.addPlayer(room, 'dev-B', { zodiacId: 'ox', name: 'B' })
+  s.setOnline(room, 'dev-B', false)
+
+  assert.equal(s.findRoomByDevice('dev-B'), room)
+  assert.equal(s.findRoomByDevice('dev-X'), null)
+
+  // 새로고침 후 같은 코드로 다시 join → 온라인 복귀 + 참가자 그대로
+  const rejoined = s.join(room.code, 'dev-B')
+  assert.equal(rejoined, room)
+  const snap = s.snapshot(rejoined)
+  assert.deepEqual(snap.players.map((p) => [p.id, p.online]), [['ox', true]])
+  assert.equal(snap.deviceCount, 2)
+})
+
 test('normalizeCode', () => {
   assert.equal(normalizeCode(' ab2x '), 'AB2X')
 })

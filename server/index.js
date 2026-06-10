@@ -44,8 +44,14 @@ const httpServer = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server: httpServer, path: '/ws' })
 const store = createRoomStore()
 
+// 연결이 끊긴 기기를 방에서 내보내기 전 기다려주는 시간.
+// 이 안에 재접속하면 참가자/게임 화면을 그대로 이어간다.
+const OFFLINE_GRACE_MS = 60_000
+
 // deviceId -> { ws, room } (한 기기당 연결 1개)
 const conns = new Map()
+// `${roomCode}:${deviceId}` -> 유예 만료 타이머
+const offlineTimers = new Map()
 
 const send = (ws, msg) => {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg))
@@ -61,6 +67,7 @@ function broadcastRoom(room) {
 
 function closeRoom(room, reason) {
   for (const devId of [...room.devices.keys()]) {
+    cancelOfflineCleanup(room, devId)
     const c = conns.get(devId)
     if (c) {
       c.room = null
@@ -68,6 +75,30 @@ function closeRoom(room, reason) {
     }
   }
   store.rooms.delete(room.code)
+}
+
+function cancelOfflineCleanup(room, deviceId) {
+  const key = `${room.code}:${deviceId}`
+  const t = offlineTimers.get(key)
+  if (t) {
+    clearTimeout(t)
+    offlineTimers.delete(key)
+  }
+}
+
+// 유예 시간 안에 돌아오지 않은 기기를 방에서 내보낸다.
+// 호스트가 끝내 돌아오지 않으면 그때서야 방을 닫는다.
+function scheduleOfflineCleanup(room, deviceId) {
+  cancelOfflineCleanup(room, deviceId)
+  const key = `${room.code}:${deviceId}`
+  offlineTimers.set(key, setTimeout(() => {
+    offlineTimers.delete(key)
+    if (store.rooms.get(room.code) !== room) return
+    const dev = room.devices.get(deviceId)
+    if (!dev || dev.online) return // 이미 떠났거나 복귀함
+    if (store.leave(room, deviceId) === 'closed') closeRoom(room, '호스트가 돌아오지 않아 방을 닫았어요.')
+    else broadcastRoom(room)
+  }, OFFLINE_GRACE_MS))
 }
 
 wss.on('connection', (ws) => {
@@ -96,9 +127,20 @@ wss.on('connection', (ws) => {
       // 같은 기기의 이전 연결이 남아 있으면 교체(새로고침 등)
       const prev = conns.get(deviceId)
       if (prev && prev.ws !== ws) prev.ws.terminate()
-      conns.set(deviceId, { ws, room: prev?.room || null })
-      if (prev?.room) {
-        send(ws, { t: 'room', room: store.snapshot(prev.room) })
+      // 끊겼던(유예 중) 기기면 원래 방으로 복귀시킨다
+      const room =
+        (prev?.room && store.rooms.get(prev.room.code) === prev.room ? prev.room : null) ||
+        store.findRoomByDevice(deviceId)
+      conns.set(deviceId, { ws, room })
+      if (room) {
+        cancelOfflineCleanup(room, deviceId)
+        store.setOnline(room, deviceId, true)
+        broadcastRoom(room)
+        // 게임 중이었다면 마지막 상태도 다시 보내 화면을 이어 그리게 한다
+        if (room.lastState != null && room.hostId !== deviceId) send(ws, { t: 'state', data: room.lastState })
+      } else if (msg.room) {
+        // 클라이언트는 방에 있었다고 알고 있지만 서버엔 없음(유예 만료/서버 재시작)
+        send(ws, { t: 'closed', reason: '방이 닫혔어요. 처음 화면에서 다시 시작해 주세요.' })
       }
       return
     }
@@ -115,9 +157,10 @@ wss.on('connection', (ws) => {
       case 'join': {
         const room = store.join(msg.code, deviceId)
         conn.room = room
+        cancelOfflineCleanup(room, deviceId) // 유예 중 재참여면 그대로 복귀
         broadcastRoom(room)
         // 게임 중간에 들어온 기기도 화면을 그릴 수 있게 마지막 상태를 보내준다
-        if (room.lastState != null) send(ws, { t: 'state', data: room.lastState })
+        if (room.lastState != null && room.hostId !== deviceId) send(ws, { t: 'state', data: room.lastState })
         break
       }
       case 'leave': {
@@ -178,9 +221,12 @@ wss.on('connection', (ws) => {
     if (!conn || conn.ws !== ws) return // 새 연결로 교체된 경우
     conns.delete(deviceId)
     const room = conn.room
-    if (!room) return
-    if (store.leave(room, deviceId) === 'closed') closeRoom(room, '호스트 연결이 끊어졌어요.')
-    else broadcastRoom(room)
+    if (!room || store.rooms.get(room.code) !== room) return
+    // 바로 내보내지 않고 잠시 기다린다 — 새로고침/순간 끊김이면 그대로 복귀.
+    // 호스트가 끊긴 동안 게스트들은 hostOnline=false 스냅샷으로 안내를 본다.
+    store.setOnline(room, deviceId, false)
+    broadcastRoom(room)
+    scheduleOfflineCleanup(room, deviceId)
   })
 })
 

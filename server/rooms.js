@@ -34,18 +34,37 @@ export function createRoomStore(rng = Math.random) {
       code,
       hostId: deviceId,
       screen: 'lobby', // 'lobby' | 게임 id ('ladder' 등)
-      devices: new Map([[deviceId, { players: [] }]]),
+      devices: new Map([[deviceId, { players: [], online: true }]]),
     }
     rooms.set(code, room)
     return room
   }
 
   // 코드로 방 참여. 실패 시 에러 메시지 throw.
+  // 이미 있던 기기면(끊겼다 재참여 등) 참가자를 유지한 채 온라인으로 복귀한다.
   function join(code, deviceId) {
     const room = rooms.get(normalizeCode(code))
     if (!room) throw new Error('방을 찾을 수 없어요. 코드를 확인해 주세요.')
-    if (!room.devices.has(deviceId)) room.devices.set(deviceId, { players: [] })
+    const dev = room.devices.get(deviceId)
+    if (dev) dev.online = true
+    else room.devices.set(deviceId, { players: [], online: true })
     return room
+  }
+
+  // 연결 상태 표시. 끊겨도 기기를 바로 내보내지 않고(유예) 표시만 바꾼다.
+  function setOnline(room, deviceId, online) {
+    const dev = room.devices.get(deviceId)
+    if (!dev) return false
+    dev.online = online
+    return true
+  }
+
+  // 재접속한 기기가 속해 있던 방 찾기
+  function findRoomByDevice(deviceId) {
+    for (const room of rooms.values()) {
+      if (room.devices.has(deviceId)) return room
+    }
+    return null
   }
 
   // 기기 이탈. 그 기기의 참가자도 함께 제거된다.
@@ -98,18 +117,23 @@ export function createRoomStore(rng = Math.random) {
 
   const countPlayers = (room) => allPlayers(room).length
 
-  // 클라이언트로 보낼 방 스냅샷
+  // 클라이언트로 보낼 방 스냅샷 (참가자별/호스트 연결 상태 포함)
   function snapshot(room) {
+    const players = []
+    for (const dev of room.devices.values()) {
+      for (const p of dev.players) players.push({ ...p, online: dev.online !== false })
+    }
     return {
       code: room.code,
       hostId: room.hostId,
       screen: room.screen,
-      players: allPlayers(room),
-      deviceCount: room.devices.size,
+      players,
+      deviceCount: [...room.devices.values()].filter((d) => d.online !== false).length,
+      hostOnline: room.devices.get(room.hostId)?.online !== false,
     }
   }
 
-  return { rooms, create, join, leave, addPlayer, removePlayer, setScreen, allPlayers, snapshot }
+  return { rooms, create, join, leave, addPlayer, removePlayer, setScreen, setOnline, findRoomByDevice, allPlayers, snapshot }
 }
 
 export function normalizeCode(code) {

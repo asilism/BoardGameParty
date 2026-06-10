@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoomClient } from './RoomClient.js'
+import { saveSession, clearSession } from '../shared/storage.js'
 
 // 온라인 방 상태를 앱 전체에 제공하는 컨텍스트.
 //  - 방 스냅샷(room): 코드/호스트/참가자/현재 화면 — 서버가 관리
@@ -16,32 +17,55 @@ export function RoomProvider({ intent, onLeft, children }) {
   if (!clientRef.current) clientRef.current = createRoomClient()
   const client = clientRef.current
 
-  const [status, setStatus] = useState('connecting') // 'connecting' | 'in' | 'closed' | 'error'
+  // 'connecting'  : 첫 접속/방 입장 시도 중
+  // 'in'          : 방에 들어와 있음
+  // 'reconnecting': 쓰던 중 끊김 → 자동 재접속 중 (방 정보는 유지)
+  // 'error'/'closed': 실패/방 닫힘 → 처음으로 돌아가야 함
+  const [status, setStatus] = useState('connecting')
+  const statusRef = useRef('connecting')
+  const setStat = (v) => {
+    statusRef.current = v
+    setStatus(v)
+  }
   const [room, setRoom] = useState(null)
-  const [notice, setNotice] = useState(null) // 서버 에러/안내 토스트
+  const [notice, setNotice] = useState(null) // { text, tone: 'warn' | 'info' }
+  const everInRoom = useRef(false)
 
   useEffect(() => {
     const offs = [
       client.on('open', () => {
+        // 재접속이면 서버가 hello만으로 방을 복구하므로 다시 만들거나 참여하지 않는다
+        if (everInRoom.current) return
         if (intent.kind === 'create') client.createRoom()
         else client.joinRoom(intent.code)
       }),
       client.on('room', ({ room }) => {
+        everInRoom.current = true
+        saveSession(room.code) // 튕겨도 다시 켜면 이 방으로 복귀
         setRoom(room)
-        setStatus('in')
+        if (statusRef.current === 'reconnecting') setNotice({ text: '🔌 다시 연결됐어요!', tone: 'info' })
+        setStat('in')
       }),
       client.on('error', ({ message }) => {
-        setNotice(message)
+        setNotice({ text: message, tone: 'warn' })
         // 아직 방에 못 들어간 상태의 에러(없는 코드 등)는 실패로 처리
-        setStatus((s) => (s === 'connecting' ? 'error' : s))
+        if (statusRef.current === 'connecting') {
+          clearSession()
+          setStat('error')
+        }
       }),
       client.on('closed', ({ reason }) => {
-        setNotice(reason)
-        setStatus('closed')
+        clearSession()
+        setNotice({ text: reason, tone: 'warn' })
+        setStat('closed')
       }),
-      client.on('disconnect', () => {
-        setNotice('서버와 연결이 끊어졌어요.')
-        setStatus('closed')
+      client.on('reconnecting', () => {
+        // 방에 있다가 끊긴 경우만. (첫 접속 재시도는 'connecting' 그대로 둔다)
+        if (statusRef.current === 'in') setStat('reconnecting')
+      }),
+      client.on('fail', () => {
+        setNotice({ text: '서버에 연결할 수 없어요. 네트워크를 확인하고 다시 시도해 주세요.', tone: 'warn' })
+        setStat('error')
       }),
     ]
     client.connect()
@@ -72,6 +96,7 @@ export function RoomProvider({ intent, onLeft, children }) {
       removePlayer: client.removePlayer,
       setScreen: client.setScreen,
       leaveRoom: () => {
+        clearSession()
         client.leaveRoom()
         onLeft?.()
       },
@@ -86,6 +111,8 @@ export function RoomProvider({ intent, onLeft, children }) {
             sendAction: client.sendAction,
             subscribeState: (fn) => client.on('state', ({ data }) => fn(data)),
             subscribeAction: (fn) => client.on('action', ({ data, deviceId }) => fn(data, deviceId)),
+            // 재접속 완료 시점 구독(호스트가 최신 상태를 다시 쏘는 용도)
+            subscribeOpen: (fn) => client.on('open', fn),
           }
         : null,
     }

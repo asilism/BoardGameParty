@@ -15,6 +15,22 @@ export function NetWaiting({ text = '호스트가 게임을 준비하고 있어�
   )
 }
 
+// 화면 전체를 덮는 안내(재접속 중 / 호스트 기다리는 중).
+// 현재 화면(로비/게임)은 뒤에 그대로 두고 잠시 가려만 둔다.
+export function NetOverlay({ icon = '⏳', text, onLeave, leaveLabel = '← 방 나가기' }) {
+  return (
+    <div className="net-overlay">
+      <div className="net-overlay__icon">{icon}</div>
+      <p>{text}</p>
+      {onLeave && (
+        <button className="btn btn--ghost" onClick={onLeave}>
+          {leaveLabel}
+        </button>
+      )}
+    </div>
+  )
+}
+
 // 승리 모달에서 게스트에게 보여주는 안내(다시하기는 호스트만)
 export function GuestRestartNote() {
   return <p className="net-guest-note">🌐 호스트가 다시하기를 누르면 함께 시작돼요</p>

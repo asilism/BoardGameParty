@@ -1,11 +1,14 @@
-// 오프라인 모드 로컬 저장. 현재는 오프라인만 지원하므로 참가자(roster)를
-// localStorage에 보관해 새로고침/재방문 시에도 유지한다.
+// 로컬 저장 모음.
+//  - 한 기기(핫시트) 모드의 참가자(roster)
+//  - 온라인 방 세션(방 코드): 브라우저가 튕기거나 새로고침해도 같은 방으로 자동 복귀
 // (쿠키는 서버 전송용이라 부적합 → 로컬 보존엔 localStorage 사용)
-// 온라인 모드가 생기면 이 모듈만 서버 동기화로 교체하면 된다.
 import { getZodiac } from './zodiac.js'
 
 const KEY = 'bgp.roster.v1'
 const MAX = 5
+
+const SESSION_KEY = 'bgp.session.v1'
+const SESSION_TTL_MS = 2 * 60 * 60 * 1000 // 2시간 지나면 자동 복귀 안 함
 
 // 저장된 참가자를 안전하게 복원. 손상/구버전/중복/없는 12지신은 걸러낸다.
 export function loadRoster() {
@@ -35,6 +38,38 @@ export function loadRoster() {
 export function saveRoster(roster) {
   try {
     localStorage.setItem(KEY, JSON.stringify(roster))
+  } catch {
+    /* 무시 */
+  }
+}
+
+// ── 온라인 방 세션 ──
+// 방에 들어가면 코드를 저장해 두고, 앱이 다시 켜질 때 같은 방으로 자동 복귀를 시도한다.
+// (서버는 같은 deviceId를 잠시 기억하므로 유예 안에 돌아오면 참가자도 그대로)
+export function saveSession(code) {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ code, at: Date.now() }))
+  } catch {
+    /* 무시 */
+  }
+}
+
+export function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY)
+    if (!raw) return null
+    const { code, at } = JSON.parse(raw)
+    if (typeof code !== 'string' || !code) return null
+    if (typeof at !== 'number' || Date.now() - at > SESSION_TTL_MS) return null
+    return code
+  } catch {
+    return null
+  }
+}
+
+export function clearSession() {
+  try {
+    localStorage.removeItem(SESSION_KEY)
   } catch {
     /* 무시 */
   }
