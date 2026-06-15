@@ -725,6 +725,31 @@ test('봇: 미니언 없이 적 타워 앞에 멈춰 있지 않고 다른 할 �
   assert.ok(towerNow > tower0 + 6, `타워 앞에 얼어붙지 않고 벗어나야 한다 (${tower0.toFixed(1)}→${towerNow.toFixed(1)})`)
 })
 
+test('정글러 봇: 근처 캠프가 죽어 있어도 그 위에서 진동하지 않고 계속 전진한다', () => {
+  // 회귀 방지: 예전엔 근처 캠프가 다 죽으면 "부활 대기 중인 죽은 캠프"로 steer해
+  //  때릴 것도 없이 그 위에서 부활 타이머 내내(최대 ~45초) 진동하며 갇혔다.
+  const players = humans().map((p) => ({ ...p, isBot: true }))
+  const g = createGame(players)
+  startPlaying(g)
+  g.waveT = 999
+  g.minions.length = 0
+  const h = g.heroes.find((o) => o.team === 'blue' && o.cls === 'warrior')
+  h.role = 'jungle'
+  // 교전·갱킹 변수를 없애려고 나머지 영웅은 각자 우물로 치운다
+  for (const o of g.heroes) if (o !== h) { o.x = NEXUS_POS[o.team].x; o.z = NEXUS_POS[o.team].z }
+  // 모든 늑대 캠프를 죽여(부활 대기) 두고, 첫 캠프 바로 위에 세운다 (옛 버그의 함정 자리)
+  for (const m of g.monsters) if (m.kind === 'wolf') { m.alive = false; m.respawnT = 40 }
+  const dead = g.monsters.find((m) => m.kind === 'wolf')
+  h.x = dead.camp.x
+  h.z = dead.camp.z
+  const x0 = h.x
+  const z0 = h.z
+  run(g, 6)
+  // 죽은 캠프 위에 갇혀 진동하지 않고, 레인 등으로 충분히 이동(또는 귀환)해야 한다
+  const moved = Math.hypot(h.x - x0, h.z - z0)
+  assert.ok(moved > 20, `죽은 캠프 위에서 진동하지 않고 벗어나야 한다 (이동 ${moved.toFixed(1)})`)
+})
+
 test('봇: 미니언을 앞질러 타워로 달려가지 않고 라인 교전을 지원하러 간다', () => {
   const players = humans().map((p) => ({ ...p, isBot: true }))
   const g = createGame(players)

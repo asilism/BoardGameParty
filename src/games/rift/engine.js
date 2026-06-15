@@ -263,6 +263,9 @@ export function createGame(players, opts = {}) {
       botSeekT: 0, // >0이면 타워 앞에서 "딴 일"(합류/정글/지원)을 잠시 유지
       botStuckT: 0, // 제자리에 박혀 못 움직인 누적 시간 (BOT_STUCK_T 넘으면 귀환)
       botRecall: false, // 끼임 구제용 귀환을 스스로 시전 중인지
+      botSlide: 1, // 벽에 붙었을 때 미끄러질 방향(±1) — steerToward가 토글
+      botProgT: 0, // 마지막으로 "순 이동"이 있었던 뒤 경과 (진행 워치독)
+      botLanePushT: 0, // >0이면 벽 트랩 탈출용으로 레인 행군을 강제하는 남은 시간
     }
   })
   for (const h of heroes) {
@@ -1513,6 +1516,7 @@ function stepProjectiles(state, dt) {
 // 평소엔 맡은 레인을 행군하며 지나는 길의 정글몹/용/바론도 사냥한다.
 const BOT_SIGHT = 18
 export const BOT_STUCK_T = 3 // 가려고도 싸우지도 못하고 이만큼 제자리면 "갈 곳 잃음"으로 보고 귀환
+const JUNGLE_SEEK = 38 // 정글러가 캠프를 찾아 트래킹할 최대 거리(이보다 멀면 레인 합류로)
 
 // 봇 직업별 아이템 우선순위 — 우물에 들어왔을 때 위에서부터 살 수 있는 걸 산다.
 // (사람 플레이어가 아이템으로 일방적 우위를 갖지 않게 봇도 장비를 갖춘다)
@@ -1581,6 +1585,33 @@ function stepBots(state, dt) {
         continue
       }
     }
+    // ── 진행 워치독(순 이동 기준): 앵커에서 8 이상 벗어나야 "실제 전진"으로 본다.
+    //    틱 단위 botStuckT는 sidestep 진동(프레임당 ±0.2)에 속지만, 이건 수 초간
+    //    "한 자리를 못 벗어남"을 본다. 싸우지도(attacked) 못하고 제자리면 단계적으로 구제:
+    //      · >3초   → 레인 경유지 행군 강제(벽을 우회하는 유효 경로로 트랩 탈출)
+    //      · >4.5초 → 그래도 못 빠지면 최후의 수단으로 귀환(우물 복귀)
+    //    공격 중(타워 공성·캠프 사냥 등 생산적 정지)이면 정체로 치지 않는다. ──
+    const netProg = Math.hypot(h.x - (h.botProgX ?? h.x), h.z - (h.botProgZ ?? h.z))
+    if (netProg > 8 || inFountain(h) || attacked) {
+      h.botProgX = h.x
+      h.botProgZ = h.z
+      h.botProgT = 0
+    } else {
+      h.botProgT = (h.botProgT || 0) + dt
+    }
+    h.botLanePushT = Math.max(0, (h.botLanePushT || 0) - dt)
+    if (h.botProgT > 4.5 && !inFountain(h)) {
+      castRecall(state, h.id) // 레인 행군으로도 못 빠져나옴 → 우물로 복귀
+      if (h.recallT > 0) {
+        h.botRecall = true
+        h.botProgT = 0
+        h.mx = 0
+        h.mz = 0
+        continue
+      }
+    } else if (h.botProgT > 3) {
+      h.botLanePushT = Math.max(h.botLanePushT, 0.3) // 경유지 행군 강제(벽 우회 시도)
+    }
     if (inFountain(h)) botShop(state, h) // 우물에 있을 때 장비 보충
     const cls = CLASSES[h.cls]
     // 후퇴 판단 (탱커는 더 끈질기게 버틴다)
@@ -1636,6 +1667,11 @@ function stepBots(state, dt) {
     }
     // 교전 상대가 없으면 임무 수행
     castAttack(state, h.id) // 미니언/정글/타워 등 사거리 안 아무거나
+    // 워치독이 걸렸으면(벽 트랩) 캠프 탐색을 건너뛰고 경유지 행군으로 빠져나간다.
+    if (h.botLanePushT > 0) {
+      botLaneMove(state, h, dt)
+      continue
+    }
     // 정글러: 캠프/오브젝트를 돌다 근처 교전에 합류(갱킹). 할 일이 없으면 레인 합류.
     if (h.role === 'jungle') {
       if (botJungleRole(state, h, dt)) continue
@@ -1671,12 +1707,29 @@ function botJungleRole(state, h, dt) {
   }
   // ② 정글링 (지나는 길의 늑대 + 여건 되면 용/바론)
   if (botJungleMove(state, h)) return true
-  // ③ 캠프가 다 비었으면 다음 캠프 부활을 기다리며 강(중앙)으로 — 거기서 다시 판단
-  const respawning = state.monsters.find((m) => m.kind === 'wolf' && !m.alive)
-  if (respawning) {
-    steerToward(state, h, respawning.camp)
-    return true
+  // ③ 근처(botJungleMove 반경 16) 캠프가 비었으면 조금 더 넓게 "살아 있는" 늑대 캠프를 찾는다.
+  //    (5v5 넓은 맵에선 캠프가 흩어져 16 밖일 수 있다.)
+  //    · 절대로 죽은(부활 대기) 캠프를 향하지 않는다 — 때릴 게 없어 그 위에서 진동하며
+  //      부활 타이머 내내 정글에 갇히던 문제를 막는다.
+  //    · 너무 멀면(JUNGLE_SEEK 밖) 직선으로 트래킹하다 협곡 벽에 끼이므로, 그땐
+  //      레인 합류(아래 ④)로 넘겨 경유지를 따라 깔끔하게 이동하게 한다.
+  if (h.hp > h.maxHp * 0.5) {
+    let camp = null
+    let bd = JUNGLE_SEEK * JUNGLE_SEEK
+    for (const m of state.monsters) {
+      if (!m.alive || m.kind !== 'wolf') continue
+      const d = dist2(h, m)
+      if (d < bd) {
+        bd = d
+        camp = m
+      }
+    }
+    if (camp) {
+      steerToward(state, h, camp)
+      return true
+    }
   }
+  // ④ 갈 만한 캠프가 없거나 체력이 모자라면 레인 합류로 넘긴다(호출부 botLaneMove가 가운데길을 민다).
   return false
 }
 
@@ -1705,8 +1758,25 @@ function botCombatSkills(state, h, foe, d, nearCount) {
   }
 }
 
-// 봇 조향: 직선이 막히면 접선으로 비켜 가는 방향을 입력으로 넣는다
+// 봇 조향: 직선이 막히면 접선으로 비켜 가는 방향을 입력으로 넣는다.
+//  · avoidDir은 "지역" 회피라 짧은 장애물은 잘 돌지만, 긴 벽(미드 협곡 등)
+//    바깥면에 정면으로 붙으면 못 빠져나와 제자리에 끼인다.
+//  · 그래서 진행이 막히기 시작하면(botStuckT 누적) 목표 방향에 수직으로
+//    "벽을 타고 미끄러져" 모서리를 돌아 나간다. 한쪽으로 못 빠지면 주기적으로
+//    반대쪽으로 바꿔 둘 다 시도한다. (무거운 귀환 구제가 발동하기 전에 스스로 탈출)
 function steerToward(state, h, to) {
+  if ((h.botStuckT || 0) > 0.6) {
+    h.botSlideT = (h.botSlideT || 0) + STEP
+    if (h.botSlideT > 1) { // 한쪽으로 1초 미끄러져도 안 풀리면 반대쪽으로
+      h.botSlideT = 0
+      h.botSlide = -(h.botSlide || 1)
+    }
+    const a = Math.atan2(to.z - h.z, to.x - h.x) + (h.botSlide || 1) * Math.PI * 0.55
+    h.mx = Math.cos(a)
+    h.mz = Math.sin(a)
+    return
+  }
+  h.botSlideT = 0
   const dir = state.map.avoidDir(h, to.x, to.z, state.towers, 1.3)
   h.mx = dir.x
   h.mz = dir.z
