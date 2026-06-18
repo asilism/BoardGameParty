@@ -1886,7 +1886,7 @@ body {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   pointer-events: none; z-index: 4;
 }
-.rift__topbar { pointer-events: none; background: transparent; }
+.rift__topbar { pointer-events: none; background: transparent; border-bottom: none; gap: 10px; }
 .rift__topbar .btn { pointer-events: auto; }
 .rift__score {
   display: flex; align-items: center; gap: 12px;
@@ -1965,8 +1965,8 @@ body {
   font-size: clamp(11px, 1.9vh, 15px); pointer-events: none; white-space: nowrap;
 }
 .rift__side {
-  position: absolute; top: 58px; right: 12px;
-  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  position: absolute; top: 58px; left: 12px;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
   pointer-events: none;
 }
 .rift-minimap {
@@ -1974,23 +1974,24 @@ body {
   filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.35));
 }
 
-/* 좌측 하단: 내 영웅 상태 (체력/경험치/레벨) */
+/* 상단 메뉴바 좌측에 녹여 넣은 내 영웅 상태 (체력/경험치/레벨/골드/아이템) */
 .rift__me {
-  position: absolute; left: 14px; bottom: 16px; width: clamp(190px, 30vw, 280px);
-  background: rgba(20, 28, 51, 0.75); border-radius: 14px; padding: 10px 12px;
-  display: flex; flex-direction: column; gap: 6px; pointer-events: none;
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  background: rgba(20, 28, 51, 0.72); border-radius: 999px; padding: 5px 12px;
+  font-weight: 800; font-size: clamp(12px, 2vh, 16px); pointer-events: none;
 }
-.rift__me-top {
-  display: flex; align-items: center; gap: 8px;
-  font-weight: 800; font-size: clamp(13px, 2.4vh, 18px);
+.rift__me-bars {
+  display: flex; flex-direction: column; gap: 2px;
+  width: clamp(72px, 11vw, 120px); flex-shrink: 0;
 }
 .rift__me-emoji { font-size: 1.5em; line-height: 1; }
 .rift__me-cls {
   font-size: 0.8em; padding: 1px 7px; border-radius: 99px;
   background: rgba(255, 207, 77, 0.16); color: var(--accent);
+  flex-shrink: 0; white-space: nowrap;
 }
-.rift__me-lvl { color: var(--accent); }
-.rift__me-kd { margin-left: auto; font-size: 0.85em; opacity: 0.9; }
+.rift__me-lvl { color: var(--accent); flex-shrink: 0; }
+.rift__me-kd { font-size: 0.85em; opacity: 0.9; flex-shrink: 0; white-space: nowrap; }
 .rift__bar {
   position: relative; height: 16px; border-radius: 8px; overflow: hidden;
   background: rgba(8, 12, 26, 0.8);
@@ -2034,15 +2035,15 @@ body {
   background: rgba(214, 96, 49, 0.92);
 }
 .rift-btn--skill {
-  right: 193px; bottom: 55px; width: 92px; height: 92px; font-size: 32px;
+  right: 165px; bottom: 51px; width: 92px; height: 92px; font-size: 32px;
   background: rgba(54, 130, 230, 0.9);
 }
 .rift-btn--skill2 {
-  right: 152px; bottom: 150px; width: 84px; height: 84px; font-size: 28px;
+  right: 132px; bottom: 130px; width: 84px; height: 84px; font-size: 28px;
   background: rgba(46, 196, 150, 0.92);
 }
 .rift-btn--ult {
-  right: 57px; bottom: 191px; width: 92px; height: 92px; font-size: 32px;
+  right: 53px; bottom: 163px; width: 92px; height: 92px; font-size: 32px;
   background: rgba(155, 107, 214, 0.92);
 }
 .rift-btn--recall {
@@ -2140,12 +2141,8 @@ body {
 .rift-result__items { font-size: 13px; letter-spacing: 1px; }
 
 /* 내 영웅 패널: 골드 + 인벤토리 */
-.rift__me-gold { margin-left: auto; color: #ffd34d; }
-.rift__me-foot {
-  display: flex; align-items: center; gap: 8px;
-  font-size: clamp(11px, 2vh, 15px); font-weight: 800;
-}
-.rift__me-items { margin-left: auto; display: flex; gap: 3px; }
+.rift__me-gold { color: #ffd34d; flex-shrink: 0; white-space: nowrap; }
+.rift__me-items { display: flex; gap: 3px; flex-shrink: 0; }
 .rift__me-item {
   width: 22px; height: 22px; border-radius: 6px;
   display: flex; align-items: center; justify-content: center; font-size: 15px;

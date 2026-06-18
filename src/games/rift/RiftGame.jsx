@@ -260,7 +260,37 @@ function RiftPlay({
 
       <div className="rift__hud">
         <div className="ladder__topbar rift__topbar">
-          <button className="btn btn--ghost" onClick={onExit}>← 나가기</button>
+          {/* 내 영웅 상태를 상단 메뉴바 좌측에 녹여 넣는다 (모바일에서 하단 공간 확보) */}
+          {me && (
+            <div className="rift__me">
+              <span className="rift__me-emoji">{getZodiac(me.zodiacId)?.emoji}</span>
+              <span className="rift__me-cls">{CLASSES[me.cls]?.icon}{CLASSES[me.cls]?.name}</span>
+              <span className="rift__me-lvl">Lv.{me.lvl}</span>
+              <div className="rift__me-bars">
+                <div className="rift__bar rift__bar--hp">
+                  <div style={{ width: `${(me.hp / me.maxHp) * 100}%` }} />
+                  <span>{me.hp} / {me.maxHp}</span>
+                </div>
+                <div className="rift__bar rift__bar--xp">
+                  <div style={{ width: me.xpNeed ? `${(me.xp / me.xpNeed) * 100}%` : '100%' }} />
+                </div>
+              </div>
+              <span className="rift__me-gold">💰 {me.gold}</span>
+              <span className="rift__me-kd">⚔️{me.kills} 💀{me.deaths}</span>
+              <span className="rift__me-items">
+                {Array.from({ length: 3 }).map((_, i) => {
+                  const it = (me.items || [])[i]
+                  return (
+                    <span key={i} className="rift__me-item">
+                      {it ? getItem(it)?.icon : '·'}
+                    </span>
+                  )
+                })}
+              </span>
+              {me.dragonT > 0 && <span title="용 버프">🐉</span>}
+              {me.baronT > 0 && <span title="바론 버프">👹</span>}
+            </div>
+          )}
           <div className="rift__score">
             <span className="rift__score-side rift__score-side--blue">🔵 {hud.kills.blue}</span>
             <span className="rift__score-time">⏱ {fmtTime(hud.timeLeft)}</span>
@@ -276,47 +306,14 @@ function RiftPlay({
               {soundOn ? '🔊' : '🔇'}
             </button>
             <FullscreenButton />
+            <button className="btn btn--ghost" onClick={onExit} aria-label="나가기">🚪</button>
           </div>
         </div>
 
-        {/* 우측 상단: 미니맵 */}
+        {/* 좌상단: 미니맵 */}
         <div className="rift__side">
           <RiftMiniMap view={hud} myId={myId} />
         </div>
-
-        {/* 좌측 하단: 내 영웅 상태 */}
-        {me && (
-          <div className="rift__me">
-            <div className="rift__me-top">
-              <span className="rift__me-emoji">{getZodiac(me.zodiacId)?.emoji}</span>
-              <span className="rift__me-cls">{CLASSES[me.cls]?.icon}{CLASSES[me.cls]?.name}</span>
-              <span className="rift__me-lvl">Lv.{me.lvl}</span>
-              <span className="rift__me-gold">💰 {me.gold}</span>
-              {me.dragonT > 0 && <span title="용 버프">🐉</span>}
-              {me.baronT > 0 && <span title="바론 버프">👹</span>}
-            </div>
-            <div className="rift__bar rift__bar--hp">
-              <div style={{ width: `${(me.hp / me.maxHp) * 100}%` }} />
-              <span>{me.hp} / {me.maxHp}</span>
-            </div>
-            <div className="rift__bar rift__bar--xp">
-              <div style={{ width: me.xpNeed ? `${(me.xp / me.xpNeed) * 100}%` : '100%' }} />
-            </div>
-            <div className="rift__me-foot">
-              <span className="rift__me-kd">⚔️{me.kills} 💀{me.deaths}</span>
-              <span className="rift__me-items">
-                {Array.from({ length: 3 }).map((_, i) => {
-                  const it = (me.items || [])[i]
-                  return (
-                    <span key={i} className="rift__me-item">
-                      {it ? getItem(it)?.icon : '·'}
-                    </span>
-                  )
-                })}
-              </span>
-            </div>
-          </div>
-        )}
 
         {hud.status === 'countdown' && hud.countdown > 0 && (
           <div className="rift__count" key={hud.countdown}>{hud.countdown}</div>
