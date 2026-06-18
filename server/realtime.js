@@ -24,10 +24,12 @@ export function createRealtimeSession(gameId, room, sendTo) {
   let lastView = null // 직전 방송 view(델타 기준)
   let lastNow = Date.now()
   let timer = null
+  let paused = false // 방장이 일시정지하면 시뮬을 멈춘다(방송은 계속)
   const needsFull = new Set() // 중간 합류 등으로 full이 필요한 기기
 
   function broadcast() {
-    const view = sim ? sim.view() : { phase: 'setup' }
+    // 일시정지 상태는 view에 실어 보낸다(클라가 오버레이/예측정지 판단)
+    const view = sim ? { ...sim.view(), paused } : { phase: 'setup' }
     const delta = encodeSnapshot(lastView, view)
     let full = null // 필요할 때만 만든다
     const getFull = () => (full || (full = encodeSnapshot(null, view)))
@@ -42,7 +44,9 @@ export function createRealtimeSession(gameId, room, sendTo) {
   function tick() {
     if (sim) {
       const now = Date.now()
-      sim.advance(now - lastNow)
+      // 일시정지 중엔 시뮬을 진행하지 않는다. lastNow는 갱신해 둬야
+      // 재개 시 멈춰 있던 시간만큼 한꺼번에 따라잡지 않는다.
+      if (!paused) sim.advance(now - lastNow)
       lastNow = now
     }
     broadcast()
@@ -67,20 +71,27 @@ export function createRealtimeSession(gameId, room, sendTo) {
       sim = new RealtimeSim(adapter, adapter.createGame(players, opts))
       lastNow = Date.now()
       lastView = null // 다음 방송은 전원 full
+      paused = false
     },
     // 호스트가 셋업으로 복귀(맵/팀 다시 고르기)
     reset() {
       sim = null
       lastView = null
+      paused = false
+    },
+    // 방장 전용: 일시정지/재개. 재개 직후 한 틱이 폭주하지 않게 lastNow를 맞춘다.
+    setPaused(value) {
+      paused = !!value
+      if (!paused) lastNow = Date.now()
     },
 
     input(deviceId, input) {
-      if (!sim || !input) return
+      if (!sim || !input || paused) return
       const id = racerIdFor(allPlayersOf(room), deviceId)
       if (id) sim.setInput(id, input)
     },
     action(deviceId, action) {
-      if (!sim || !action) return
+      if (!sim || !action || paused) return
       const id = racerIdFor(allPlayersOf(room), deviceId)
       if (id) sim.applyAction(action, id)
     },

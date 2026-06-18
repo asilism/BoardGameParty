@@ -97,6 +97,7 @@ export function createRoomClient({ url = wsUrl(), deviceId = getDeviceId() } = {
     // 실시간 게임(④ 서버 권위)
     rtStart: (config) => send({ t: 'rtStart', config }),
     rtStop: () => send({ t: 'rtStop' }),
+    rtPause: (paused) => send({ t: 'rtPause', paused: !!paused }),
     rtInput: (input) => send({ t: 'rtInput', input }),
     rtAction: (action) => send({ t: 'rtAction', action }),
   }

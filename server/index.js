@@ -214,6 +214,12 @@ wss.on('connection', (ws) => {
         if (s && conn.room.hostId === deviceId) s.reset()
         break
       }
+      case 'rtPause': {
+        // 방장만 일시정지/재개할 수 있다
+        const s = conn.room && rtSessions.get(conn.room.code)
+        if (s && conn.room.hostId === deviceId) s.setPaused(msg.paused)
+        break
+      }
       case 'rtInput': {
         const s = conn.room && rtSessions.get(conn.room.code)
         if (s) s.input(deviceId, msg.input)

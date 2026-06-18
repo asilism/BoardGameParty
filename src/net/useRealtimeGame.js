@@ -85,6 +85,8 @@ export function useRealtimeGame(net, adapter, ctrlRef) {
     if (!buf.length) return null
     const base = adapter.interpolate(buf, performance.now() - INTERP_DELAY)
     if (!base || base.phase !== 'play' || !myId) return base
+    // 일시정지 중엔 내 영웅도 멈춰 있어야 한다 — 예측을 건너뛰고 권위 위치 그대로.
+    if (base.paused) return base
 
     const latest = buf[buf.length - 1].v
     const list = latest[adapter.localKey]
@@ -124,7 +126,8 @@ export function useRealtimeGame(net, adapter, ctrlRef) {
 
   const start = useCallback((config) => net?.rtStart?.(config), [net])
   const stop = useCallback(() => net?.rtStop?.(), [net])
+  const pause = useCallback((paused) => net?.rtPause?.(paused), [net])
   const sendAction = useCallback((action) => net?.rtAction?.(action), [net])
 
-  return { view, sample, myId, isHost, start, stop, sendAction }
+  return { view, sample, myId, isHost, start, stop, pause, sendAction }
 }

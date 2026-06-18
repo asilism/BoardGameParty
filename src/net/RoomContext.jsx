@@ -90,6 +90,7 @@ export function RoomProvider({ intent, onLeft, children }) {
             subscribeSnapshot: (fn) => client.on('rt', (bytes) => fn(bytes)),
             rtStart: client.rtStart,
             rtStop: client.rtStop,
+            rtPause: client.rtPause,
             rtInput: client.rtInput,
             rtAction: client.rtAction,
           }

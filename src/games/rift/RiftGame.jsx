@@ -23,7 +23,7 @@ import { NetWaiting, GuestRestartNote } from '../../net/NetParts.jsx'
 export default function RiftGame({ roster, onExit, net }) {
   const online = !!net?.online
   const ctrlRef = useRef({ mx: 0, mz: 0 })
-  const { view, sample, myId, isHost, start, stop, sendAction } = useRealtimeGame(net, riftNet, ctrlRef)
+  const { view, sample, myId, isHost, start, stop, pause, sendAction } = useRealtimeGame(net, riftNet, ctrlRef)
   const [soundOn, setSoundOn] = useState(true)
   const lastTeamsRef = useRef(null) // "한판 더!" 즉시 리매치용
 
@@ -96,6 +96,7 @@ export default function RiftGame({ roster, onExit, net }) {
       onResetShop={resetShopBuys}
       onRematch={isHost ? () => startGame(...lastTeamsRef.current) : null} // 같은 팀/직업으로 한판 더!
       onRestart={isHost ? () => stop() : null} // 팀 다시 나누기 = 셋업으로 복귀
+      onTogglePause={isHost ? () => pause(!view.paused) : null} // 방장만 일시정지/재개
       onExit={onExit}
       soundOn={soundOn}
       onToggleSound={toggleSound}
@@ -199,23 +200,24 @@ const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padSt
 
 // 전투 화면 (호스트/게스트 공용). 3D 캔버스 + HUD + 터치 컨트롤.
 function RiftPlay({
-  hud, sample, myId, ctrlRef, onCast, onBuy, onSell, onResetShop, onRematch, onRestart, onExit, soundOn, onToggleSound,
+  hud, sample, myId, ctrlRef, onCast, onBuy, onSell, onResetShop, onRematch, onRestart, onTogglePause, onExit, soundOn, onToggleSound,
 }) {
   useRiftSounds(hud, myId)
   const banner = useFeedBanner(hud)
   const [shopOpen, setShopOpen] = useState(false)
   // 배경음악(칩튠 루프): 경기 중에만 흐르고, 어느 한쪽 넥서스가 위태로우면 템포 업
   const bgmStatus = hud?.status
+  const paused = !!hud?.paused
   const nexusCrisis = !!(
     hud?.nexus &&
     (hud.nexus.blue.hp < hud.nexus.blue.maxHp * 0.35 ||
       hud.nexus.red.hp < hud.nexus.red.maxHp * 0.35)
   )
   useEffect(() => {
-    if (bgmStatus === 'playing' && soundOn) sound.musicStartLift()
+    if (bgmStatus === 'playing' && soundOn && !paused) sound.musicStartLift()
     else sound.musicStop()
     sound.musicSetFast(nexusCrisis)
-  }, [bgmStatus, nexusCrisis, soundOn])
+  }, [bgmStatus, nexusCrisis, soundOn, paused])
   useEffect(() => () => sound.musicStop(), [])
   // 상점은 우물 안에 있거나 사망(부활 대기) 중에 열 수 있다 — 그 밖이면 자동으로 닫힌다
   const me = hud?.heroes?.find((h) => h.id === myId)
@@ -252,7 +254,7 @@ function RiftPlay({
           onUlt={() => onCast('ult')}
           onRecall={() => onCast('recall')}
           me={me}
-          disabled={me.respawnT > 0}
+          disabled={me.respawnT > 0 || paused}
         />
       )}
 
@@ -265,6 +267,11 @@ function RiftPlay({
             <span className="rift__score-side rift__score-side--red">{hud.kills.red} 🔴</span>
           </div>
           <div className="topbar__right">
+            {onTogglePause && !finished && (
+              <button className="btn btn--ghost" onClick={onTogglePause} aria-label={paused ? '재개' : '일시정지'}>
+                {paused ? '▶️' : '⏸️'}
+              </button>
+            )}
             <button className="btn btn--ghost" onClick={onToggleSound} aria-label="소리">
               {soundOn ? '🔊' : '🔇'}
             </button>
@@ -356,6 +363,20 @@ function RiftPlay({
           </div>
         )}
       </div>
+
+      {/* 일시정지 오버레이 — 방장이 멈추면 모두에게 표시 */}
+      {paused && !finished && (
+        <div className="rift__pause">
+          <div className="rift__pause-card">
+            <div className="rift__pause-emoji">⏸️</div>
+            <h2>일시정지</h2>
+            <p>{onTogglePause ? '게임이 멈췄어요. 다시 시작하려면 재개를 눌러요.' : '방장이 게임을 잠시 멈췄어요...'}</p>
+            {onTogglePause && (
+              <button className="btn btn--primary" onClick={onTogglePause}>▶️ 재개하기</button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 우물 안 또는 사망 중에 뜨는 상점 버튼 */}
       {me && !finished && meCanShop && !shopOpen && (
