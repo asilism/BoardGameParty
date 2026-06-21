@@ -14,12 +14,25 @@ const KEYS = {
   down: new Set(['ArrowDown', 's', 'S']),
 }
 
+// pulse 값이 바뀔 때마다 잠깐(240ms) 눌림 상태를 켜 주는 훅.
+// 키보드·게임패드 입력처럼 포인터 이벤트가 없는 조작에서도 버튼 누름 피드백을 보여 준다.
+function usePressPulse(pulse, setPressed) {
+  const first = useRef(true)
+  useEffect(() => {
+    if (first.current) { first.current = false; return undefined } // 마운트 시엔 깜빡이지 않음
+    setPressed(true)
+    const t = setTimeout(() => setPressed(false), 240)
+    return () => clearTimeout(t)
+  }, [pulse])
+}
+
 // 쿨다운 버튼: 남은 시간 비율만큼 어두운 부채꼴 오버레이 + 스킬 이름
 // interactive=false면 터치 입력은 막고 쿨다운/상태 표시만 한다(키보드·패드 모드).
-function CdButton({ className, icon, label, cd, cdMax, locked, lockText, onPress, onRelease, interactive = true }) {
+function CdButton({ className, icon, label, cd, cdMax, locked, lockText, onPress, onRelease, interactive = true, pulse = 0 }) {
   const frac = cdMax > 0 ? Math.max(0, Math.min(1, cd / cdMax)) : 0
   const ready = !locked && frac <= 0
   const [pressed, setPressed] = useState(false)
+  usePressPulse(pulse, setPressed)
   const release = () => {
     if (pressed) setPressed(false)
     onRelease?.()
@@ -54,10 +67,11 @@ function CdButton({ className, icon, label, cd, cdMax, locked, lockText, onPress
 
 // 귀환 버튼: 쿨다운 없이 7초 채널링. 시전 중엔 남은 시간만큼 차오르는 게이지를 보여준다.
 // (이동/피격/기절/다른 스킬에 방해받으면 엔진이 취소한다. 다시 누르면 시전 취소)
-function RecallButton({ recallT, onPress, interactive = true }) {
+function RecallButton({ recallT, onPress, interactive = true, pulse = 0 }) {
   const channeling = recallT > 0
   const frac = channeling ? 1 - recallT / RECALL_TIME : 0 // 진행도(0→1)
   const [pressed, setPressed] = useState(false)
+  usePressPulse(pulse, setPressed)
   return (
     <button
       className={`rift-btn rift-btn--recall ${channeling ? 'rift-btn--channel-on' : 'rift-btn--ready'} ${pressed ? 'rift-btn--press' : ''}`}
@@ -112,6 +126,11 @@ export default function RiftControls({ onMove, onAttack, onSkill, onSkill2, onUl
   const keyboard = scheme === 'wasd' // WASD/화살표 + 스킬 키
   const gamepad = scheme === 'xbox' // Xbox 컨트롤러(게임패드 API)
 
+  // 키보드·게임패드로 발동할 때도 해당 버튼이 눌리는 피드백을 보여 주기 위한 펄스 카운터.
+  // 슬롯별 값이 늘 때마다 그 버튼이 잠깐 깜빡인다.
+  const [pulses, setPulses] = useState({})
+  const firePulse = (slot) => setPulses((p) => ({ ...p, [slot]: (p[slot] || 0) + 1 }))
+
   // 키보드: WASD/화살표 이동(대각 포함), L(또는 Space) 평타, H 직업스킬, J 보조스킬, K 궁극기, B 귀환
   // 선택한 조작 방식이 'wasd'일 때만 동작한다.
   useEffect(() => {
@@ -130,13 +149,14 @@ export default function RiftControls({ onMove, onAttack, onSkill, onSkill2, onUl
       if (disabledRef.current) return
       if (e.key === ' ' || e.key === 'l' || e.key === 'L') {
         e.preventDefault()
+        firePulse('atk')
         onAttackRef.current?.()
         return
       }
-      if (e.key === 'h' || e.key === 'H') return onSkillRef.current?.()
-      if (e.key === 'j' || e.key === 'J') return onSkill2Ref.current?.()
-      if (e.key === 'k' || e.key === 'K') return onUltRef.current?.()
-      if (e.key === 'b' || e.key === 'B') return onRecallRef.current?.()
+      if (e.key === 'h' || e.key === 'H') { firePulse('skill'); return onSkillRef.current?.() }
+      if (e.key === 'j' || e.key === 'J') { firePulse('skill2'); return onSkill2Ref.current?.() }
+      if (e.key === 'k' || e.key === 'K') { firePulse('ult'); return onUltRef.current?.() }
+      if (e.key === 'b' || e.key === 'B') { firePulse('recall'); return onRecallRef.current?.() }
       for (const set of Object.values(KEYS)) {
         if (set.has(e.key)) {
           e.preventDefault()
@@ -196,14 +216,15 @@ export default function RiftControls({ onMove, onAttack, onSkill, onSkill2, onUl
       if (gp.buttons[BTN.atk]?.pressed) {
         const t = performance.now()
         if (t - lastAtk >= ATK_REPEAT_MS) {
+          firePulse('atk')
           onAttackRef.current?.()
           lastAtk = t
         }
       }
-      edge(gp, BTN.skill, () => onSkillRef.current?.())
-      edge(gp, BTN.skill2, () => onSkill2Ref.current?.())
-      edge(gp, BTN.ult, () => onUltRef.current?.())
-      edge(gp, BTN.recall, () => onRecallRef.current?.())
+      edge(gp, BTN.skill, () => { firePulse('skill'); onSkillRef.current?.() })
+      edge(gp, BTN.skill2, () => { firePulse('skill2'); onSkill2Ref.current?.() })
+      edge(gp, BTN.ult, () => { firePulse('ult'); onUltRef.current?.() })
+      edge(gp, BTN.recall, () => { firePulse('recall'); onRecallRef.current?.() })
     }
     raf = requestAnimationFrame(poll)
     return () => {
@@ -285,6 +306,7 @@ export default function RiftControls({ onMove, onAttack, onSkill, onSkill2, onUl
         lockText="Lv5 해금"
         onPress={onUlt}
         interactive={mobile}
+        pulse={pulses.ult || 0}
       />
       {cls.skill2 && (
         <CdButton
@@ -297,6 +319,7 @@ export default function RiftControls({ onMove, onAttack, onSkill, onSkill2, onUl
           lockText="Lv3 해금"
           onPress={onSkill2}
           interactive={mobile}
+          pulse={pulses.skill2 || 0}
         />
       )}
       <CdButton
@@ -307,6 +330,7 @@ export default function RiftControls({ onMove, onAttack, onSkill, onSkill2, onUl
         cdMax={cls.skill.cd}
         onPress={onSkill}
         interactive={mobile}
+        pulse={pulses.skill || 0}
       />
       <CdButton
         className="rift-btn--atk"
@@ -317,8 +341,9 @@ export default function RiftControls({ onMove, onAttack, onSkill, onSkill2, onUl
         onPress={atkPress}
         onRelease={atkRelease}
         interactive={mobile}
+        pulse={pulses.atk || 0}
       />
-      <RecallButton recallT={me?.recallT ?? 0} onPress={onRecall} interactive={mobile} />
+      <RecallButton recallT={me?.recallT ?? 0} onPress={onRecall} interactive={mobile} pulse={pulses.recall || 0} />
     </>
   )
 }
