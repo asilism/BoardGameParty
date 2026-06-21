@@ -11,6 +11,7 @@ import { getZodiac } from '../../shared/zodiac.js'
 import { getItem } from './items.js'
 import { racers } from '../../net/realtime/roster.js'
 import { sound } from '../../shared/sound.js'
+import { loadRiftControl, saveRiftControl } from '../../shared/storage.js'
 import { useRealtimeGame } from '../../net/useRealtimeGame.js'
 import { riftNet } from './netgame.js'
 import { NetWaiting, GuestRestartNote } from '../../net/NetParts.jsx'
@@ -198,6 +199,79 @@ function useFeedBanner(hud) {
 
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 
+// 조작 방식 목록. 'lol'(롤 방식)은 아직 미구현이라 선택 불가(추후 도입).
+const CONTROL_SCHEMES = [
+  { id: 'wasd', icon: '⌨️', label: 'WASD 키보드', desc: 'WASD·화살표 이동, H/J/K 스킬, L 평타' },
+  { id: 'lol', icon: '🖱️', label: '롤 방식', desc: '추후 도입 예정', soon: true },
+  { id: 'mobile', icon: '📱', label: '모바일', desc: '드래그 조이스틱 + 터치 버튼' },
+  { id: 'xbox', icon: '🎮', label: 'Xbox 컨트롤러', desc: '스틱 이동, A 평타, X/Y/B 스킬' },
+]
+
+// 우상단 설정 버튼 하나로 통합한 메뉴: 일시정지·소리·전체화면·조작 방식·나가기를 분기 메뉴로 띄운다.
+function RiftSettingsMenu({ paused, finished, onTogglePause, soundOn, onToggleSound, scheme, onSchemeChange, onExit }) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef(null)
+  useEffect(() => {
+    if (!open) return undefined
+    const onDown = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false)
+    }
+    window.addEventListener('pointerdown', onDown)
+    return () => window.removeEventListener('pointerdown', onDown)
+  }, [open])
+
+  return (
+    <div className="rift-settings" ref={wrapRef}>
+      <button
+        className={`btn btn--ghost rift-settings__toggle ${open ? 'rift-settings__toggle--on' : ''}`}
+        onClick={() => setOpen((o) => !o)}
+        aria-label="설정"
+        aria-expanded={open}
+      >
+        ⚙️
+      </button>
+      {open && (
+        <div className="rift-settings__menu" role="menu">
+          {onTogglePause && !finished && (
+            <button className="rift-settings__item" onClick={() => { onTogglePause(); setOpen(false) }}>
+              <span>{paused ? '▶️' : '⏸️'}</span> {paused ? '재개' : '일시정지'}
+            </button>
+          )}
+          <button className="rift-settings__item" onClick={onToggleSound}>
+            <span>{soundOn ? '🔊' : '🔇'}</span> 소리 {soundOn ? '켜짐' : '꺼짐'}
+          </button>
+          <div className="rift-settings__item rift-settings__item--full">
+            <FullscreenButton />
+          </div>
+
+          <div className="rift-settings__sep" />
+          <div className="rift-settings__label">🎮 조작 방식</div>
+          {CONTROL_SCHEMES.map((s) => (
+            <button
+              key={s.id}
+              className={`rift-settings__scheme ${scheme === s.id ? 'rift-settings__scheme--on' : ''} ${s.soon ? 'rift-settings__scheme--soon' : ''}`}
+              onClick={() => { if (!s.soon) onSchemeChange(s.id) }}
+              disabled={s.soon}
+            >
+              <span className="rift-settings__scheme-icon">{s.icon}</span>
+              <span className="rift-settings__scheme-text">
+                <strong>{s.label}{s.soon ? ' (추후 도입)' : ''}</strong>
+                <small>{s.desc}</small>
+              </span>
+              {scheme === s.id && <span className="rift-settings__scheme-check">✓</span>}
+            </button>
+          ))}
+
+          <div className="rift-settings__sep" />
+          <button className="rift-settings__item rift-settings__item--exit" onClick={() => { setOpen(false); onExit() }}>
+            <span>🚪</span> 나가기
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // 전투 화면 (호스트/게스트 공용). 3D 캔버스 + HUD + 터치 컨트롤.
 function RiftPlay({
   hud, sample, myId, ctrlRef, onCast, onBuy, onSell, onResetShop, onRematch, onRestart, onTogglePause, onExit, soundOn, onToggleSound,
@@ -205,6 +279,11 @@ function RiftPlay({
   useRiftSounds(hud, myId)
   const banner = useFeedBanner(hud)
   const [shopOpen, setShopOpen] = useState(false)
+  const [scheme, setScheme] = useState(loadRiftControl) // 조작 방식: mobile/wasd/xbox
+  function changeScheme(s) {
+    setScheme(s)
+    saveRiftControl(s)
+  }
   // 배경음악(칩튠 루프): 경기 중에만 흐르고, 어느 한쪽 넥서스가 위태로우면 템포 업
   const bgmStatus = hud?.status
   const paused = !!hud?.paused
@@ -255,6 +334,7 @@ function RiftPlay({
           onRecall={() => onCast('recall')}
           me={me}
           disabled={me.respawnT > 0 || paused}
+          scheme={scheme}
         />
       )}
 
@@ -297,16 +377,16 @@ function RiftPlay({
             <span className="rift__score-side rift__score-side--red">{hud.kills.red} 🔴</span>
           </div>
           <div className="topbar__right">
-            {onTogglePause && !finished && (
-              <button className="btn btn--ghost" onClick={onTogglePause} aria-label={paused ? '재개' : '일시정지'}>
-                {paused ? '▶️' : '⏸️'}
-              </button>
-            )}
-            <button className="btn btn--ghost" onClick={onToggleSound} aria-label="소리">
-              {soundOn ? '🔊' : '🔇'}
-            </button>
-            <FullscreenButton />
-            <button className="btn btn--ghost" onClick={onExit} aria-label="나가기">🚪</button>
+            <RiftSettingsMenu
+              paused={paused}
+              finished={finished}
+              onTogglePause={onTogglePause}
+              soundOn={soundOn}
+              onToggleSound={onToggleSound}
+              scheme={scheme}
+              onSchemeChange={changeScheme}
+              onExit={onExit}
+            />
           </div>
         </div>
 

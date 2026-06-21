@@ -1886,12 +1886,15 @@ body {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   pointer-events: none; z-index: 4;
 }
-.rift__topbar { pointer-events: none; background: transparent; border-bottom: none; gap: 10px; }
+.rift__topbar { pointer-events: none; background: transparent; border-bottom: none; gap: 10px; position: relative; }
 .rift__topbar .btn { pointer-events: auto; }
+/* 팀 스코어는 화면 가로 정중앙에 고정 (좌측 내 정보·우측 설정과 무관하게 항상 중앙) */
 .rift__score {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   display: flex; align-items: center; gap: 12px;
   background: rgba(20, 28, 51, 0.75); border-radius: 999px; padding: 6px 18px;
   font-weight: 900; font-size: clamp(14px, 2.6vh, 20px);
+  white-space: nowrap; pointer-events: none;
 }
 .rift__score-side--blue { color: #8fb8ff; }
 .rift__score-side--red { color: #ffa3a3; }
@@ -2028,6 +2031,14 @@ body {
 .rift-btn small { font-size: 12px; font-weight: 800; }
 .rift-btn__icon { display: block; line-height: 1; }
 .rift-btn:active { transform: scale(0.93); filter: brightness(1.15); }
+/* 누름 피드백: 살짝 들어가며(scale) 안쪽에서 하얀 섬광이 번진다 → 무엇이 눌렸는지 직관적으로 */
+.rift-btn--press { transform: scale(0.88); filter: brightness(1.3) saturate(1.15); }
+.rift-btn--press::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.6), transparent 72%);
+  animation: rift-btn-flash 0.4s ease-out; pointer-events: none;
+}
+@keyframes rift-btn-flash { from { opacity: 1; } to { opacity: 0; } }
 /* 평타(발바닥 패드)는 우하단 고정. 스킬들은 이 버튼을 중심으로 한 호 위에
    왼쪽(약함) → 오른쪽/위(강함) 순서로 배치한다 — 강아지 발바닥 모양 🐾 */
 .rift-btn--atk {
@@ -2035,15 +2046,15 @@ body {
   background: rgba(214, 96, 49, 0.92);
 }
 .rift-btn--skill {
-  right: 165px; bottom: 51px; width: 92px; height: 92px; font-size: 32px;
+  right: 174px; bottom: 52px; width: 92px; height: 92px; font-size: 32px;
   background: rgba(54, 130, 230, 0.9);
 }
 .rift-btn--skill2 {
-  right: 132px; bottom: 130px; width: 84px; height: 84px; font-size: 28px;
+  right: 145px; bottom: 143px; width: 84px; height: 84px; font-size: 28px;
   background: rgba(46, 196, 150, 0.92);
 }
 .rift-btn--ult {
-  right: 53px; bottom: 163px; width: 92px; height: 92px; font-size: 32px;
+  right: 54px; bottom: 172px; width: 92px; height: 92px; font-size: 32px;
   background: rgba(155, 107, 214, 0.92);
 }
 .rift-btn--recall {
@@ -2064,6 +2075,44 @@ body {
   font-size: 30px; font-weight: 900; color: #fff;
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
 }
+
+/* 우상단 설정 메뉴 — 톱니 버튼 하나에서 분기 메뉴를 띄운다 */
+.rift-settings { position: relative; pointer-events: auto; }
+.rift-settings__toggle--on { filter: brightness(1.2); box-shadow: 0 0 0 2px var(--accent) inset; }
+.rift-settings__menu {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 40;
+  width: min(280px, 84vw); padding: 8px;
+  background: rgba(14, 20, 40, 0.97); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.rift-settings__item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 9px 12px; border: none; border-radius: 10px;
+  background: transparent; color: var(--text); font-weight: 700; font-size: 15px;
+  cursor: pointer; text-align: left;
+}
+.rift-settings__item:hover { background: rgba(255, 255, 255, 0.08); }
+.rift-settings__item span { font-size: 18px; }
+.rift-settings__item--full { padding: 4px; }
+.rift-settings__item--full .btn { width: 100%; justify-content: flex-start; }
+.rift-settings__item--exit { color: #ff9a9a; }
+.rift-settings__sep { height: 1px; background: var(--line); margin: 6px 4px; }
+.rift-settings__label { padding: 2px 12px 4px; font-size: 12px; color: var(--muted); font-weight: 800; }
+.rift-settings__scheme {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 8px 12px; border: 1px solid transparent; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04); color: var(--text);
+  cursor: pointer; text-align: left; margin-bottom: 2px;
+}
+.rift-settings__scheme:hover:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
+.rift-settings__scheme--on { border-color: var(--accent); background: rgba(255, 211, 77, 0.14); }
+.rift-settings__scheme--soon { opacity: 0.5; cursor: default; }
+.rift-settings__scheme-icon { font-size: 20px; flex: none; }
+.rift-settings__scheme-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.rift-settings__scheme-text strong { font-size: 14px; }
+.rift-settings__scheme-text small { font-size: 11px; color: var(--muted); }
+.rift-settings__scheme-check { color: var(--accent); font-weight: 900; flex: none; }
 
 /* 팀 나누기 화면 */
 .rift-setup {
