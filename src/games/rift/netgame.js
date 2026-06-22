@@ -11,6 +11,10 @@ export const riftNet = {
   STEP,
   // 교전이 잦은 AOS라 20Hz보다 촘촘한 30Hz(33ms)로 방송해 체감 반응을 높인다.
   snapshotMs: 33,
+  // 30Hz로 스냅샷이 촘촘하니 보간 버퍼를 줄여(110→90ms) 남이 보이는 지연을 낮추고,
+  // 입력 전송 주기도 줄여(66→45ms) 스킬/아이템 액션이 서버에 더 빨리 닿게 한다.
+  interpDelayMs: 90,
+  inputMs: 45,
 
   buildParticipants(players, config) {
     const mode = config?.mode || '3v3'

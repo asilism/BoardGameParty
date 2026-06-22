@@ -11,8 +11,11 @@ import { racerIdFor } from './realtime/roster.js'
 //  - 입력은 변했을 때만 INPUT_MS 주기로 서버에 보낸다.
 //
 // 게임은 adapter(netgame.js)와 입력 ref(ctrlRef)만 넘기면 된다. 다른 게임도 동일.
-const INTERP_DELAY = 110 // 남의 엔티티 보간 지연(ms)
-const INPUT_MS = 66 // 입력 전송 주기(ms)
+// 어댑터가 게임별로 덮어쓸 수 있는 기본값(snapshotMs와 짝을 이룬다).
+//  - interpDelayMs: 남의 엔티티 보간 지연. 방송이 촘촘할수록(고Hz) 더 줄일 수 있다.
+//  - inputMs: 입력 전송 주기. 줄이면 액션이 서버에 더 빨리 닿는다.
+const DEFAULT_INTERP_DELAY = 110 // 남의 엔티티 보간 지연(ms)
+const DEFAULT_INPUT_MS = 66 // 입력 전송 주기(ms)
 const EASE = 0.22 // 예측 → 권위 보정 강도(프레임당)
 const SNAP_DIST = 14 // 이 이상 어긋나면(리스폰/순간이동) 즉시 맞춘다
 
@@ -26,6 +29,8 @@ function angLerp(a, b, f) {
 export function useRealtimeGame(net, adapter, ctrlRef) {
   const isHost = !!net?.isHost
   const myId = useMemo(() => (net ? racerIdFor(net.players, net.deviceId) : null), [net])
+  const interpDelay = adapter.interpDelayMs ?? DEFAULT_INTERP_DELAY
+  const inputMs = adapter.inputMs ?? DEFAULT_INPUT_MS
 
   const [view, setView] = useState(null) // 최신 권위 스냅샷(HUD/phase/사운드용)
   const bufRef = useRef([]) // 보간 버퍼 [{at, v}]
@@ -67,7 +72,7 @@ export function useRealtimeGame(net, adapter, ctrlRef) {
     lastStatusRef.current = st ?? null
   }, [view])
 
-  // ── 입력 전송: 변했을 때만 INPUT_MS 주기로 ──
+  // ── 입력 전송: 변했을 때만 inputMs 주기로 ──
   useEffect(() => {
     if (!net?.rtInput || !myId || !ctrlRef) return undefined
     const t = setInterval(() => {
@@ -75,15 +80,15 @@ export function useRealtimeGame(net, adapter, ctrlRef) {
       if (sig === lastSentRef.current) return
       lastSentRef.current = sig
       net.rtInput(adapter.readInput(ctrlRef.current))
-    }, INPUT_MS)
+    }, inputMs)
     return () => clearInterval(t)
-  }, [net, myId, adapter, ctrlRef])
+  }, [net, myId, adapter, ctrlRef, inputMs])
 
   // ── 렌더용 view: 남은 보간 + 내 엔티티 예측 ──
   const sample = useCallback(() => {
     const buf = bufRef.current
     if (!buf.length) return null
-    const base = adapter.interpolate(buf, performance.now() - INTERP_DELAY)
+    const base = adapter.interpolate(buf, performance.now() - interpDelay)
     if (!base || base.phase !== 'play' || !myId) return base
     // 일시정지 중엔 내 영웅도 멈춰 있어야 한다 — 예측을 건너뛰고 권위 위치 그대로.
     if (base.paused) return base
@@ -122,7 +127,7 @@ export function useRealtimeGame(net, adapter, ctrlRef) {
     const meRender = { ...authMe, x: pred.x, z: pred.z, [af]: pred.ang }
     const merged = base[adapter.localKey].map((e) => (e.id === myId ? meRender : e))
     return { ...base, [adapter.localKey]: merged }
-  }, [adapter, myId, ctrlRef])
+  }, [adapter, myId, ctrlRef, interpDelay])
 
   const start = useCallback((config) => net?.rtStart?.(config), [net])
   const stop = useCallback(() => net?.rtStop?.(), [net])
