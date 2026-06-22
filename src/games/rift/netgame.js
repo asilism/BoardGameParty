@@ -9,6 +9,8 @@ import { racers } from '../../net/realtime/roster.js'
 export const riftNet = {
   id: 'rift',
   STEP,
+  // 교전이 잦은 AOS라 20Hz보다 촘촘한 30Hz(33ms)로 방송해 체감 반응을 높인다.
+  snapshotMs: 33,
 
   buildParticipants(players, config) {
     const mode = config?.mode || '3v3'
