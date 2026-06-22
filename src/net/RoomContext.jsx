@@ -19,6 +19,7 @@ export function RoomProvider({ intent, onLeft, children }) {
   const [status, setStatus] = useState('connecting') // 'connecting' | 'in' | 'closed' | 'error'
   const [room, setRoom] = useState(null)
   const [notice, setNotice] = useState(null) // 서버 에러/안내 토스트
+  const [reconnecting, setReconnecting] = useState(false) // 끊겨서 재연결 시도 중
 
   useEffect(() => {
     const offs = [
@@ -29,6 +30,11 @@ export function RoomProvider({ intent, onLeft, children }) {
       client.on('room', ({ room }) => {
         setRoom(room)
         setStatus('in')
+        // 재연결로 방이 복구되면 "재연결 중" 안내를 거둔다.
+        setReconnecting((wasReconnecting) => {
+          if (wasReconnecting) setNotice(null)
+          return false
+        })
       }),
       client.on('error', ({ message }) => {
         setNotice(message)
@@ -39,7 +45,15 @@ export function RoomProvider({ intent, onLeft, children }) {
         setNotice(reason)
         setStatus('closed')
       }),
+      // 끊겼지만 아직 포기 전 — 게임/로비는 그대로 두고 안내만 띄운다.
+      client.on('reconnecting', () => {
+        setReconnecting(true)
+        setNotice('연결이 끊겼어요. 다시 연결 중이에요…')
+      }),
+      // 소켓은 다시 열렸다(hello 전송됨). 곧 올 room 스냅샷을 기다린다.
+      client.on('reopen', () => {}),
       client.on('disconnect', () => {
+        setReconnecting(false)
         setNotice('서버와 연결이 끊어졌어요.')
         setStatus('closed')
       }),
@@ -53,12 +67,12 @@ export function RoomProvider({ intent, onLeft, children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client])
 
-  // 안내 토스트 자동 닫기
+  // 안내 토스트 자동 닫기 (재연결 중에는 계속 보여준다)
   useEffect(() => {
-    if (!notice || status !== 'in') return
+    if (!notice || status !== 'in' || reconnecting) return
     const t = setTimeout(() => setNotice(null), 2600)
     return () => clearTimeout(t)
-  }, [notice, status])
+  }, [notice, status, reconnecting])
 
   const value = useMemo(() => {
     const isHost = room && room.hostId === client.deviceId
@@ -66,6 +80,7 @@ export function RoomProvider({ intent, onLeft, children }) {
       status,
       room,
       notice,
+      reconnecting,
       deviceId: client.deviceId,
       isHost: !!isHost,
       addPlayer: client.addPlayer,
@@ -96,7 +111,7 @@ export function RoomProvider({ intent, onLeft, children }) {
           }
         : null,
     }
-  }, [status, room, notice, client, onLeft])
+  }, [status, room, notice, reconnecting, client, onLeft])
 
   return <RoomCtx.Provider value={value}>{children}</RoomCtx.Provider>
 }

@@ -52,6 +52,33 @@ const conns = new Map()
 // room.code -> 실시간 게임 세션(④ 서버 권위). 실시간 게임 화면일 때만 존재.
 const rtSessions = new Map()
 
+// 연결이 끊겨도 이 시간 안에 같은 기기가 재접속하면 자리를 유지한다.
+// (새로고침·짧은 네트워크 끊김에 봇 인계/방 폐쇄가 바로 일어나지 않게)
+const GRACE_MS = 8000
+const pendingDeparture = new Map() // deviceId -> timeout
+
+function clearPendingDeparture(deviceId) {
+  const t = pendingDeparture.get(deviceId)
+  if (t) {
+    clearTimeout(t)
+    pendingDeparture.delete(deviceId)
+  }
+}
+
+// 끊긴 기기의 이탈을 유예 후 확정한다. 그 안에 재접속(hello)하면 타이머가 취소된다.
+function scheduleDeparture(room, deviceId) {
+  clearPendingDeparture(deviceId)
+  const t = setTimeout(() => {
+    pendingDeparture.delete(deviceId)
+    const conn = conns.get(deviceId)
+    // 그 사이 재접속했거나(OPEN) 다른 방으로 옮겼으면 이탈시키지 않는다.
+    if (!conn || conn.room !== room || conn.ws.readyState === conn.ws.OPEN) return
+    conns.delete(deviceId)
+    handleDeparture(room, deviceId)
+  }, GRACE_MS)
+  pendingDeparture.set(deviceId, t)
+}
+
 const send = (ws, msg) => {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg))
 }
@@ -95,6 +122,7 @@ function broadcastRoom(room) {
 function closeRoom(room, reason) {
   dropSession(room)
   for (const devId of [...room.devices.keys()]) {
+    clearPendingDeparture(devId)
     const c = conns.get(devId)
     if (c) {
       c.room = null
@@ -140,6 +168,8 @@ wss.on('connection', (ws) => {
     if (msg.t === 'hello') {
       deviceId = String(msg.deviceId || '').slice(0, 64)
       if (!deviceId) throw new Error('deviceId가 필요해요.')
+      // 유예 중 재접속 → 이탈 타이머 취소(자리 유지)
+      clearPendingDeparture(deviceId)
       // 같은 기기의 이전 연결이 남아 있으면 교체(새로고침 등)
       const prev = conns.get(deviceId)
       if (prev && prev.ws !== ws) prev.ws.terminate()
@@ -178,6 +208,7 @@ wss.on('connection', (ws) => {
         if (!conn.room) break
         const room = conn.room
         conn.room = null
+        clearPendingDeparture(deviceId) // 명시적 나가기는 유예 없이 즉시 이탈
         handleDeparture(room, deviceId)
         break
       }
@@ -259,10 +290,14 @@ wss.on('connection', (ws) => {
     if (!deviceId) return
     const conn = conns.get(deviceId)
     if (!conn || conn.ws !== ws) return // 새 연결로 교체된 경우
-    conns.delete(deviceId)
     const room = conn.room
-    if (!room) return
-    handleDeparture(room, deviceId)
+    if (!room) {
+      conns.delete(deviceId)
+      return
+    }
+    // 방에 속한 기기는 바로 내보내지 않고 유예를 둔다. conn은 남겨둬야
+    // 유예 안에 재접속(hello)했을 때 방을 복구할 수 있다.
+    scheduleDeparture(room, deviceId)
   })
 })
 

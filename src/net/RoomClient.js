@@ -24,9 +24,15 @@ export function wsUrl() {
   return `${proto}://${location.host}/ws`
 }
 
+// 재연결 백오프(ms). 마지막 값을 한도까지 반복하다 포기한다.
+const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 10000, 10000]
+
 export function createRoomClient({ url = wsUrl(), deviceId = getDeviceId() } = {}) {
   let ws = null
   let closedByUser = false
+  let started = false // 첫 연결 성공 여부(이후 끊김은 재연결로 본다)
+  let attempts = 0 // 연속 재연결 시도 횟수
+  let reconnectTimer = null
   const listeners = new Map() // type -> Set<fn>
 
   const emit = (type, payload) => {
@@ -34,13 +40,34 @@ export function createRoomClient({ url = wsUrl(), deviceId = getDeviceId() } = {
     if (set) [...set].forEach((fn) => fn(payload))
   }
 
-  function connect() {
-    closedByUser = false
+  function scheduleReconnect() {
+    if (closedByUser || reconnectTimer) return
+    if (attempts >= RECONNECT_DELAYS.length) {
+      emit('disconnect') // 한도까지 시도했지만 실패 → 최종 끊김
+      return
+    }
+    const delay = RECONNECT_DELAYS[attempts]
+    attempts++
+    emit('reconnecting', { attempt: attempts, delay })
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      if (!closedByUser) open()
+    }, delay)
+  }
+
+  function open() {
     ws = new WebSocket(url)
     ws.binaryType = 'arraybuffer' // 실시간 스냅샷은 바이너리 프레임으로 온다
     ws.onopen = () => {
+      attempts = 0 // 성공했으니 백오프 초기화
+      // hello가 서버의 유예 타이머를 취소하고 방을 복구해 준다(재연결 시).
       send({ t: 'hello', deviceId })
-      emit('open')
+      if (!started) {
+        started = true
+        emit('open') // 첫 연결 → RoomProvider가 create/join 의도를 수행
+      } else {
+        emit('reopen') // 재연결 → 서버가 보내줄 room 스냅샷을 기다린다
+      }
     }
     ws.onmessage = (ev) => {
       // 바이너리 프레임 = 실시간 게임 스냅샷(델타/full). JSON 파싱하지 않고 그대로 넘긴다.
@@ -57,9 +84,17 @@ export function createRoomClient({ url = wsUrl(), deviceId = getDeviceId() } = {
       emit(msg.t, msg)
     }
     ws.onclose = () => {
-      if (!closedByUser) emit('disconnect')
+      // 의도치 않은 끊김은 바로 포기하지 않고 백오프로 재연결을 시도한다.
+      if (!closedByUser) scheduleReconnect()
     }
     ws.onerror = () => {}
+  }
+
+  function connect() {
+    closedByUser = false
+    started = false
+    attempts = 0
+    open()
   }
 
   function send(msg) {
@@ -68,6 +103,10 @@ export function createRoomClient({ url = wsUrl(), deviceId = getDeviceId() } = {
 
   function close() {
     closedByUser = true
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
     try {
       ws?.close()
     } catch {
